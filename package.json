@@ -1,0 +1,25 @@
+{
+  "name": "asterisk-gui-ari",
+  "version": "1.0.0",
+  "description": "Web-based GUI for Asterisk with ARI API integration",
+  "main": "index.js",
+  "scripts": {
+    "start": "wsl.exe -d Ubuntu bash -c \"cd /mnt/c/Users/Bappa/OneDrive/Desktop/Asterisk/backend-node && npm start\"",
+    "frontend": "cd frontend && npm start",
+    "install-all": "npm install && cd backend-node && npm install && cd ../frontend && npm install",
+    "dev": "concurrently \"npm start\" \"npm run frontend\"",
+    "build": "cd frontend && npm run build"
+  },
+  "keywords": [
+    "asterisk",
+    "ari",
+    "voip",
+    "pbx",
+    "gui"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "_info": {
+    "description": "PBX-Quality SIP Trunk Provider Templates",
+    "version": "2.0",
+    "auth_types": ["credential", "ip"],
+    "supported_providers": ["telnyx", "signalwire", "twilio", "vonage", "bandwidth", "voipms", "flowroute", "plivo", "didlogic", "voxbone", "custom_credential", "custom_ip"]
+  },
+  
+  "telnyx": {
+    "display_name": "Telnyx",
+    "auth_type": "credential",
+    "default_server": "sip.telnyx.com",
+    "default_port": 5060,
+    "required_fields": ["trunk_name", "username", "password", "did"],
+    "optional_fields": ["context", "codecs"],
+    "default_codecs": "ulaw,alaw,g722",
+    "registration": "[{trunk_name}]\ntype=registration\noutbound_auth={trunk_name}-auth\nserver_uri=sip:sip.telnyx.com\nclient_uri=sip:{username}@sip.telnyx.com\ncontact_user={username}\nretry_interval=60\nexpiration=300\n",
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:sip.telnyx.com\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\ncontext={context}\ndisallow=all\nallow={codecs}\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\nfrom_user={did}\nfrom_domain=sip.telnyx.com\nsend_pai=yes\nsend_rpid=yes\ndirect_media=no\nrtp_symmetric=yes\nforce_rport=yes\nrewrite_contact=yes\nice_support=no\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch=sip.telnyx.com\n"
+  },
+  
+  "signalwire": {
+    "display_name": "SignalWire",
+    "auth_type": "credential",
+    "default_port": 5060,
+    "required_fields": ["trunk_name", "username", "password", "space_name", "from_user"],
+    "optional_fields": ["context", "codecs"],
+    "default_codecs": "ulaw,alaw",
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:{space_name}.sip.signalwire.com\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={from_user}\nfrom_domain={space_name}.sip.signalwire.com\nmedia_encryption=sdes\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\nice_support=no\n",
+    "registration": "[{trunk_name}-registration]\ntype=registration\nserver_uri=sip:{space_name}.sip.signalwire.com\nclient_uri=sip:{username}@{space_name}.sip.signalwire.com\noutbound_auth={trunk_name}-auth\nretry_interval=60\nexpiration=3600\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch={space_name}.sip.signalwire.com\n"
+  },
+  
+  "twilio": {
+    "display_name": "Twilio Elastic SIP",
+    "auth_type": "credential",
+    "default_server": ".pstn.twilio.com",
+    "required_fields": ["trunk_name", "username", "password", "termination_uri"],
+    "optional_fields": ["context", "codecs", "from_user"],
+    "default_codecs": "ulaw,alaw,g722",
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:{termination_uri}\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={from_user}\nfrom_domain={termination_uri}\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch={termination_uri}\n"
+  },
+  
+  "vonage": {
+    "display_name": "Vonage (Nexmo)",
+    "auth_type": "credential",
+    "default_server": "sip.nexmo.com",
+    "required_fields": ["trunk_name", "username", "password"],
+    "optional_fields": ["context", "codecs", "from_user"],
+    "default_codecs": "ulaw,alaw,g722",
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:sip.nexmo.com\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={from_user}\nfrom_domain=sip.nexmo.com\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\n",
+    "registration": "[{trunk_name}-registration]\ntype=registration\nserver_uri=sip:sip.nexmo.com\nclient_uri=sip:{username}@sip.nexmo.com\noutbound_auth={trunk_name}-auth\nretry_interval=60\nexpiration=3600\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch=sip.nexmo.com\n"
+  },
+  
+  "bandwidth": {
+    "display_name": "Bandwidth",
+    "auth_type": "credential",
+    "default_server": "sip.bandwidth.com",
+    "required_fields": ["trunk_name", "username", "password", "from_user"],
+    "optional_fields": ["context", "codecs"],
+    "default_codecs": "ulaw,alaw",
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:sip.bandwidth.com\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={from_user}\nfrom_domain=sip.bandwidth.com\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\n",
+    "registration": "[{trunk_name}-registration]\ntype=registration\nserver_uri=sip:sip.bandwidth.com\nclient_uri=sip:{username}@sip.bandwidth.com\noutbound_auth={trunk_name}-auth\nretry_interval=60\nexpiration=3600\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch=sip.bandwidth.com\n"
+  },
+  
+  "voipms": {
+    "display_name": "VoIP.ms",
+    "auth_type": "credential",
+    "default_server": ".voip.ms",
+    "required_fields": ["trunk_name", "username", "password", "server_location"],
+    "optional_fields": ["context", "codecs"],
+    "default_codecs": "ulaw,alaw,g729",
+    "server_locations": ["atlanta", "chicago", "dallas", "denver", "losangeles", "newyork", "seattle", "toronto", "montreal", "london", "amsterdam"],
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:{server_location}.voip.ms\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={username}\nfrom_domain={server_location}.voip.ms\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\n",
+    "registration": "[{trunk_name}-registration]\ntype=registration\nserver_uri=sip:{server_location}.voip.ms\nclient_uri=sip:{username}@{server_location}.voip.ms\noutbound_auth={trunk_name}-auth\nretry_interval=60\nexpiration=3600\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch={server_location}.voip.ms\n"
+  },
+  
+  "flowroute": {
+    "display_name": "Flowroute",
+    "auth_type": "credential",
+    "default_server": "us-west-or.sip.flowroute.com",
+    "required_fields": ["trunk_name", "username", "password"],
+    "optional_fields": ["context", "codecs", "from_user", "server_region"],
+    "default_codecs": "ulaw,alaw,g722",
+    "server_regions": ["us-west-or", "us-east-nj"],
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:{server_region}.sip.flowroute.com\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={from_user}\nfrom_domain={server_region}.sip.flowroute.com\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\n",
+    "registration": "[{trunk_name}-registration]\ntype=registration\nserver_uri=sip:{server_region}.sip.flowroute.com\nclient_uri=sip:{username}@{server_region}.sip.flowroute.com\noutbound_auth={trunk_name}-auth\nretry_interval=60\nexpiration=3600\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch={server_region}.sip.flowroute.com\n"
+  },
+  
+  "plivo": {
+    "display_name": "Plivo",
+    "auth_type": "credential",
+    "default_server": "phone.plivo.com",
+    "required_fields": ["trunk_name", "username", "password"],
+    "optional_fields": ["context", "codecs", "from_user"],
+    "default_codecs": "ulaw,alaw,g722",
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:phone.plivo.com\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={from_user}\nfrom_domain=phone.plivo.com\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch=phone.plivo.com\n"
+  },
+  
+  "custom_credential": {
+    "display_name": "Custom (Credential Auth)",
+    "auth_type": "credential",
+    "required_fields": ["trunk_name", "username", "password", "sip_server"],
+    "optional_fields": ["context", "codecs", "from_user", "sip_port"],
+    "default_codecs": "ulaw,alaw,g722,g729",
+    "auth": "[{trunk_name}-auth]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={password}\n",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:{sip_server}:{sip_port}\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\noutbound_auth={trunk_name}-auth\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={from_user}\nfrom_domain={sip_server}\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\n",
+    "registration": "[{trunk_name}-registration]\ntype=registration\nserver_uri=sip:{sip_server}:{sip_port}\nclient_uri=sip:{username}@{sip_server}\noutbound_auth={trunk_name}-auth\nretry_interval=60\nexpiration=3600\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch={sip_server}\n"
+  },
+  
+  "custom_ip": {
+    "display_name": "Custom (IP Auth)",
+    "auth_type": "ip",
+    "required_fields": ["trunk_name", "sip_server", "match_ip"],
+    "optional_fields": ["context", "codecs", "from_user", "sip_port"],
+    "default_codecs": "ulaw,alaw,g722,g729",
+    "aor": "[{trunk_name}-aor]\ntype=aor\ncontact=sip:{sip_server}:{sip_port}\nqualify_frequency=60\n",
+    "endpoint": "[{trunk_name}-endpoint]\ntype=endpoint\ntransport=transport-udp\naors={trunk_name}-aor\ndisallow=all\nallow={codecs}\nfrom_user={from_user}\nfrom_domain={sip_server}\ncontext={context}\nrewrite_contact=yes\nrtp_symmetric=yes\nforce_rport=yes\ndirect_media=no\n",
+    "identify": "[{trunk_name}-identify]\ntype=identify\nendpoint={trunk_name}-endpoint\nmatch={match_ip}\n"
+  },
+  
+  "global": {
+    "template": "[global]\ntype=global\nuser_agent=Asterisk PBX\nmax_initial_qualify_time=8\nkeep_alive_interval=30\n"
+  },
+  
+  "transport": {
+    "template": "[transport-udp]\ntype=transport\nprotocol=udp\nbind=0.0.0.0:{port}\nexternal_signaling_address={external_ip}\nexternal_media_address={external_ip}\nlocal_net={local_net}\nallow_reload=yes\ntos=cs3\ncos=3\n"
+  }
+}
