@@ -3221,12 +3221,16 @@ app.post('/api/asterisk/cli', authenticateAdmin, async (req, res) => {
     'core show hints',
     'core show settings',
     'core show sysinfo',
+    'core reload',
     'pjsip show endpoints',
     'pjsip show registrations',
     'pjsip show aors',
     'pjsip show auths',
     'pjsip show contacts',
+    'pjsip reload',
+    'dialplan reload',
     'dialplan show',
+    'module reload',
     'queue show',
     'bridge show all',
     'module show',
@@ -3234,13 +3238,18 @@ app.post('/api/asterisk/cli', authenticateAdmin, async (req, res) => {
     'sip show peers',
     'sip show registry',
     'sip show channels',
+    'sip reload',
     'voicemail show users',
+    'voicemail reload',
     'http show status',
+    'http reload',
     'ari show apps',
     'ari show users',
     'database show',
     'cdr show status',
-    'logger show channels'
+    'cdr reload',
+    'logger show channels',
+    'logger reload'
   ];
   
   const isAllowed = safeCommands.some(safe => command.toLowerCase().startsWith(safe.toLowerCase()));
