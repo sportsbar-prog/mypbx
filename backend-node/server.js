@@ -138,7 +138,7 @@ function createCallData(channel, voiceName = 'en-US-Neural2-A') {
     gather: null,
     apiKeyId: null,
     creditDeducted: false,
-    number: channel?.caller?.number || null,
+    number: (channel && channel.caller && channel.caller.number) || null,
     callStartTime: Date.now(),
     answeredAt: null,
     ratePerSecond: null,
@@ -154,7 +154,7 @@ function setupCallTimeout(callId, ringTimeoutSeconds = 30) {
   if (callData.ringTimer) clearTimeout(callData.ringTimer);
   callData.ringTimer = setTimeout(async () => {
     try {
-      await callData.channel?.hangup();
+      if (callData.channel) await callData.channel.hangup();
       callData.status = 'no-answer';
       await logCall(callId, callData.apiKeyId, callData.number, 'no-answer');
     } catch (err) {
@@ -187,7 +187,7 @@ async function notifyWebhook(callId, payload) {
 
 async function synthesizeTTS(callId, text, suffix = '') {
   const callData = activeCalls[callId];
-  const voiceName = callData?.voiceName || 'en-US-Neural2-A';
+  const voiceName = (callData && callData.voiceName) || 'en-US-Neural2-A';
   const mp3File = `/tmp/${callId}${suffix}.mp3`;
   const ulawFile = `${AST_SOUNDS_DIR}/${callId}${suffix}.ulaw`;
 
@@ -438,8 +438,8 @@ async function logCall(callId, apiKeyId, number, status, amdStatus = null, opts 
        bill_seconds = COALESCE(EXCLUDED.bill_seconds, call_logs.bill_seconds),
        bill_cost = COALESCE(EXCLUDED.bill_cost, call_logs.bill_cost)`,
       [
-        callId, apiKeyId, number, callData?.channel?.caller?.number || null,
-        status, amdStatus, callData?.recording?.filename, callData?.webhookUrl,
+        callId, apiKeyId, number, (callData && callData.channel && callData.channel.caller && callData.channel.caller.number) || null,
+        status, amdStatus, (callData && callData.recording && callData.recording.filename) || null, (callData && callData.webhookUrl) || null,
         durationSeconds,
         answeredAt,
         endedAt,
@@ -545,9 +545,9 @@ const authenticateAdmin = async (req, res, next) => {
 const apiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: async (req) => {
-    return req.apiKey?.rate_limit || 100;
+    return (req.apiKey && req.apiKey.rate_limit) || 100;
   },
-  keyGenerator: (req) => req.apiKey?.id || req.ip,
+  keyGenerator: (req) => (req.apiKey && req.apiKey.id) || req.ip,
   message: { success: false, error: 'Rate limit exceeded' }
 });
 
@@ -584,7 +584,7 @@ async function initializeAri() {
       const existing = activeCalls[channel.id];
       const callData = existing || createCallData(channel);
       callData.channel = channel;
-      callData.number = callData.number || channel.caller?.number;
+      callData.number = callData.number || (channel.caller && channel.caller.number);
       callData.status = callData.status || 'ringing';
       activeCalls[channel.id] = callData;
 
@@ -632,10 +632,10 @@ async function initializeAri() {
         try {
           const amdStatusVar = await channel.getChannelVar({ variable: 'AMDSTATUS' });
           const amdCauseVar = await channel.getChannelVar({ variable: 'AMDCAUSE' });
-          if (amdStatusVar?.value && amdStatusVar.value !== 'UNKNOWN') {
+          if (amdStatusVar && amdStatusVar.value && amdStatusVar.value !== 'UNKNOWN') {
             callData.amd.status = amdStatusVar.value;
           }
-          if (amdCauseVar?.value) {
+          if (amdCauseVar && amdCauseVar.value) {
             callData.amd.cause = amdCauseVar.value;
           }
           if (callData.amd.status === 'MACHINE') {
@@ -670,7 +670,7 @@ async function initializeAri() {
       const callData = activeCalls[channel.id];
       if (callData) {
         if (callData.ringTimer) clearTimeout(callData.ringTimer);
-        if (callData.gather?.timer) clearTimeout(callData.gather.timer);
+        if (callData.gather && callData.gather.timer) clearTimeout(callData.gather.timer);
 
         const endTimeMs = Date.now();
         const answeredMs = callData.answeredAt;
@@ -682,7 +682,7 @@ async function initializeAri() {
 
         try {
           const causeVar = await channel.getChannelVar({ variable: 'HANGUPCAUSE' });
-          if (causeVar?.value) {
+          if (causeVar && causeVar.value) {
             hangupCause = causeVar.value;
             if (hangupCause === '17') { finalStatus = 'no-answer'; endReason = 'busy'; }
             if (hangupCause === '18' || hangupCause === '19') { finalStatus = 'no-answer'; endReason = 'no_answer'; }
@@ -714,7 +714,7 @@ async function initializeAri() {
           callData.apiKeyId,
           callData.number,
           finalStatus,
-          callData.amd?.status,
+          (callData.amd && callData.amd.status) || null,
           {
             answeredAt: answeredMs,
             endedAt: endTimeMs,
@@ -2037,7 +2037,7 @@ app.post('/gather', async (req, res) => {
   const callData = activeCalls[callId];
   if (!callData) return res.status(404).json({ success: false, error: 'Call not found' });
   try {
-    if (callData.gather?.timer) clearTimeout(callData.gather.timer);
+    if (callData.gather && callData.gather.timer) clearTimeout(callData.gather.timer);
     callData.gather = { digits: '', numDigits, timeout, timer: null, startTime: Date.now() };
 
     const media = await synthesizeTTS(callId, text, '-gather');
@@ -2060,7 +2060,7 @@ app.post('/gather', async (req, res) => {
       }
     }, timeout);
 
-    notifyWebhook(callId, { event: 'gather.started', prompt: text?.substring(0, 100) || '', expectedDigits: numDigits, timeoutMs: timeout });
+    notifyWebhook(callId, { event: 'gather.started', prompt: (text && text.substring(0, 100)) || '', expectedDigits: numDigits, timeoutMs: timeout });
     res.json({ success: true, message: `Gathering ${numDigits} digits with ${timeout}ms timeout`, callId, expectedDigits: numDigits, timeoutMs: timeout });
   } catch (err) {
     console.error(`Gather error for ${callId}:`, err.message);
@@ -2136,9 +2136,9 @@ app.get('/recordings', authenticateApiKey, async (req, res) => {
       .filter(([_, data]) => data.apiKeyId === req.apiKey.id)
       .map(([id, s]) => ({
         callId: id,
-        filename: s.recording?.filename || null,
-        recordingId: s.recording?.recordingId || null,
-        active: !!s.recording?.active
+        filename: (s.recording && s.recording.filename) || null,
+        recordingId: (s.recording && s.recording.recordingId) || null,
+        active: !!(s.recording && s.recording.active)
       }));
 
     let files = [];
