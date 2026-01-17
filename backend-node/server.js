@@ -2502,11 +2502,14 @@ const ASTERISK_CONFIG_DIR = process.env.ASTERISK_CONFIG_DIR || '/etc/asterisk';
 async function readAsteriskConfig(filename) {
   const safeName = path.basename(filename);
   const filePath = path.join(ASTERISK_CONFIG_DIR, safeName);
+  console.log(`📖 Reading config file: ${filePath}`);
   try {
     const content = await fs.promises.readFile(filePath, 'utf8');
-    return { success: true, content, filename: safeName };
+    console.log(`✅ Successfully read ${safeName} (${content.length} bytes)`);
+    return { success: true, content, filename: safeName, path: filePath };
   } catch (error) {
-    return { success: false, error: error.message, filename: safeName };
+    console.error(`❌ Failed to read ${filePath}: ${error.message}`);
+    return { success: false, error: error.message, filename: safeName, path: filePath };
   }
 }
 
@@ -2514,6 +2517,7 @@ async function readAsteriskConfig(filename) {
 async function writeAsteriskConfig(filename, content) {
   const safeName = path.basename(filename);
   const filePath = path.join(ASTERISK_CONFIG_DIR, safeName);
+  console.log(`📝 Writing config file: ${filePath}`);
   try {
     // Create backup
     const backupPath = `${filePath}.backup.${Date.now()}`;
@@ -2521,16 +2525,22 @@ async function writeAsteriskConfig(filename, content) {
     try {
       await fs.promises.copyFile(filePath, backupPath);
       backupCreated = true;
-    } catch (e) { /* No existing file to backup */ }
+      console.log(`💾 Backup created: ${path.basename(backupPath)}`);
+    } catch (e) { 
+      console.log(`ℹ️  No existing file to backup: ${safeName}`);
+    }
     
     await fs.promises.writeFile(filePath, content, 'utf8');
+    console.log(`✅ Successfully wrote ${safeName} (${content.length} bytes)`);
     return { 
       success: true, 
       filename: safeName,
+      path: filePath,
       backup: backupCreated ? path.basename(backupPath) : null
     };
   } catch (error) {
-    return { success: false, error: error.message, filename: safeName };
+    console.error(`❌ Failed to write ${filePath}: ${error.message}`);
+    return { success: false, error: error.message, filename: safeName, path: filePath };
   }
 }
 
@@ -3097,8 +3107,10 @@ app.put('/api/asterisk/configs/:filename', authenticateAdmin, async (req, res) =
 
 // Get PJSIP configuration
 app.get('/api/pjsip/config', authenticateAdmin, async (req, res) => {
+  console.log(`🔍 Admin ${req.admin.username} requested PJSIP config from ${ASTERISK_CONFIG_DIR}/pjsip.conf`);
   const result = await readAsteriskConfig('pjsip.conf');
   if (!result.success) {
+    console.error(`⚠️  PJSIP config not found or error: ${result.error}`);
     return res.status(404).json(result);
   }
   res.json(result);
@@ -3110,7 +3122,11 @@ app.put('/api/pjsip/config', authenticateAdmin, async (req, res) => {
   if (content === undefined) {
     return res.status(400).json({ success: false, error: 'Content required' });
   }
+  console.log(`💾 Admin ${req.admin.username} updating PJSIP config (${content.length} bytes)`);
   const result = await writeAsteriskConfig('pjsip.conf', content);
+  if (result.success) {
+    console.log(`✅ PJSIP config updated successfully`);
+  }
   res.json(result);
 });
 
@@ -3198,6 +3214,11 @@ async function startServer() {
     console.log('🔗 Connecting to database...');
     await db.query('SELECT NOW()');
     console.log('✅ Database connected');
+    
+    // Log configuration paths
+    console.log(`📁 Asterisk config directory: ${ASTERISK_CONFIG_DIR}`);
+    console.log(`📁 Recordings directory: ${actualRecordingsDir}`);
+    console.log(`📁 Asterisk sounds directory: ${AST_SOUNDS_DIR}`);
     
     // Initialize ARI client
     await initializeAri();
