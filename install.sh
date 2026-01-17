@@ -101,16 +101,29 @@ print_success "PostgreSQL configured"
 # 4. INSTALL ASTERISK
 # ============================================================================
 print_step "Installing Asterisk 20..."
-ASTERISK_VERSION="20.8.0"
-ASTERISK_BUILD="/tmp/asterisk-build"
 
-if [ ! -f "/opt/asterisk/sbin/asterisk" ]; then
+# First check if already installed
+if [ -f "/opt/asterisk/sbin/asterisk" ]; then
+    print_success "Asterisk already installed"
+else
+    # Try to compile from source
+    ASTERISK_VERSION="20.8.0"
+    ASTERISK_BUILD="/tmp/asterisk-build-$$"
+    DOWNLOAD_SUCCESS=0
+    
+    print_step "Attempting to download Asterisk 20 source..."
     mkdir -p "$ASTERISK_BUILD"
     cd "$ASTERISK_BUILD"
     
-    # Try to download
-    if wget -q "https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz" 2>/dev/null || \
-       curl -s -o "asterisk-${ASTERISK_VERSION}.tar.gz" "https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz" 2>/dev/null; then
+    # Try with timeout to prevent hanging
+    if timeout 120 wget -q "https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz" 2>/dev/null; then
+        DOWNLOAD_SUCCESS=1
+    elif timeout 120 curl -s -o "asterisk-${ASTERISK_VERSION}.tar.gz" "https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz" 2>/dev/null; then
+        DOWNLOAD_SUCCESS=1
+    fi
+    
+    if [ $DOWNLOAD_SUCCESS -eq 1 ] && [ -f "asterisk-${ASTERISK_VERSION}.tar.gz" ]; then
+        print_success "Download successful, compiling..."
         
         tar xzf "asterisk-${ASTERISK_VERSION}.tar.gz" > /dev/null 2>&1
         
@@ -118,37 +131,59 @@ if [ ! -f "/opt/asterisk/sbin/asterisk" ]; then
         if [ -d "asterisk-${ASTERISK_VERSION}" ]; then
             ASTERISK_DIR="$ASTERISK_BUILD/asterisk-${ASTERISK_VERSION}"
         else
-            ASTERISK_DIR=$(ls -d */ | head -1 | sed 's:/$::')
+            ASTERISK_DIR=$(ls -d */ 2>/dev/null | head -1 | sed 's:/$::')
             ASTERISK_DIR="$ASTERISK_BUILD/$ASTERISK_DIR"
         fi
         
         if [ -d "$ASTERISK_DIR" ]; then
             cd "$ASTERISK_DIR"
             
-            # Build
+            # Build with timeout
             if [ -f "bootstrap.sh" ]; then
-                ./bootstrap.sh > /dev/null 2>&1 || true
+                timeout 60 ./bootstrap.sh > /dev/null 2>&1 || true
             fi
             
-            ./configure --prefix=/opt/asterisk --with-pgsql --with-ssl --with-srtp --with-jansson --enable-dev-mode > /dev/null 2>&1
-            make -j$(nproc) > /dev/null 2>&1
-            make install > /dev/null 2>&1
-            make install-logrotate > /dev/null 2>&1
-            make install-config > /dev/null 2>&1
+            timeout 300 ./configure --prefix=/opt/asterisk --with-pgsql --with-ssl --with-srtp --with-jansson --enable-dev-mode > /dev/null 2>&1
             
-            print_success "Asterisk compiled and installed"
+            if [ $? -eq 0 ]; then
+                print_step "Building Asterisk (this may take 10-15 minutes)..."
+                timeout 1800 make -j$(nproc) > /dev/null 2>&1
+                
+                if [ $? -eq 0 ]; then
+                    timeout 600 make install > /dev/null 2>&1
+                    timeout 300 make install-logrotate > /dev/null 2>&1
+                    timeout 300 make install-config > /dev/null 2>&1
+                    
+                    if [ -f "/opt/asterisk/sbin/asterisk" ]; then
+                        print_success "Asterisk compiled and installed"
+                    else
+                        print_warning "Compilation finished but binary not found, using packages..."
+                        apt-get install -y asterisk asterisk-dev > /dev/null 2>&1
+                        print_success "Asterisk installed from packages"
+                    fi
+                else
+                    print_warning "Build failed, installing from system packages..."
+                    apt-get install -y asterisk asterisk-dev > /dev/null 2>&1
+                    print_success "Asterisk installed from packages"
+                fi
+            else
+                print_warning "Configure failed, installing from system packages..."
+                apt-get install -y asterisk asterisk-dev > /dev/null 2>&1
+                print_success "Asterisk installed from packages"
+            fi
         else
-            print_warning "Could not find Asterisk directory, trying package install..."
+            print_warning "Could not find extracted directory, using packages..."
             apt-get install -y asterisk asterisk-dev > /dev/null 2>&1
             print_success "Asterisk installed from packages"
         fi
     else
-        print_warning "Download failed, installing from system packages..."
+        print_warning "Download failed (network may be limited), installing from system packages..."
         apt-get install -y asterisk asterisk-dev > /dev/null 2>&1
-        print_success "Asterisk installed from packages"
+        print_success "Asterisk installed from system packages"
     fi
-else
-    print_success "Asterisk already installed"
+    
+    # Cleanup
+    rm -rf "$ASTERISK_BUILD"
 fi
 
 # ============================================================================
