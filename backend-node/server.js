@@ -1105,12 +1105,16 @@ app.post('/api/call/originate', authenticateApiKey, apiLimiter, async (req, res)
 });
 
 // Get active channels
-app.get('/api/channels', async (req, res) => {
+app.get('/api/channels', authenticateAdmin, async (req, res) => {
   try {
+    if (!ariClient) {
+      return res.status(503).json({ success: false, error: 'ARI not connected', channels: [] });
+    }
     const channels = await ariClient.channels.list();
-    res.json({ success: true, channels });
+    res.json({ success: true, channels: channels || [] });
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to fetch channels' });
+    console.error('Channels error:', error.message);
+    res.json({ success: true, channels: [] });
   }
 });
 
@@ -1381,11 +1385,15 @@ app.get('/api/admin/analytics', authenticateAdmin, async (req, res) => {
 });
 
 // Get endpoints
-app.get('/api/endpoints', async (req, res) => {
+app.get('/api/endpoints', authenticateAdmin, async (req, res) => {
   try {
+    if (!ariClient) {
+      return res.status(503).json({ success: false, error: 'ARI not connected', endpoints: [] });
+    }
     const endpoints = await ariClient.endpoints.list();
     res.json({ success: true, endpoints: endpoints || [] });
   } catch (error) {
+    console.error('Endpoints error:', error.message);
     res.json({ success: true, endpoints: [] });
   }
 });
@@ -1402,11 +1410,15 @@ app.get('/api/endpoints/:tech/:resource', async (req, res) => {
 });
 
 // Bridge operations
-app.get('/api/bridges', async (req, res) => {
+app.get('/api/bridges', authenticateAdmin, async (req, res) => {
   try {
+    if (!ariClient) {
+      return res.status(503).json({ success: false, error: 'ARI not connected', bridges: [] });
+    }
     const bridges = await ariClient.bridges.list();
     res.json({ success: true, bridges: bridges || [] });
   } catch (error) {
+    console.error('Bridges error:', error.message);
     res.json({ success: true, bridges: [] });
   }
 });
