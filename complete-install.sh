@@ -105,9 +105,20 @@ sudo -u postgres psql -c "SELECT 1 FROM pg_database WHERE datname = 'ari_api'" |
 
 # Create user with password
 sudo -u postgres psql << PSQL_EOF
-DROP USER IF EXISTS ari_user;
+-- Drop user if exists (with cascade to handle dependencies)
+DROP USER IF EXISTS ari_user CASCADE;
+-- Create new user
 CREATE USER ari_user WITH ENCRYPTED PASSWORD 'change_me';
 ALTER ROLE ari_user CREATEDB;
+PSQL_EOF
+
+sleep 2
+
+# Grant privileges to database
+sudo -u postgres psql << PSQL_EOF
+-- Make sure database exists
+CREATE DATABASE IF NOT EXISTS ari_api;
+-- Grant database privileges
 GRANT ALL PRIVILEGES ON DATABASE ari_api TO ari_user;
 PSQL_EOF
 
@@ -217,8 +228,25 @@ exten => _X.,2,VoiceMail(${EXTEN}@default)
 exten => _X.,3,Hangup()
 EOF
 
-# Create systemd service
-cat > /etc/systemd/system/asterisk.service << 'EOF'
+# Create and Enable ARI module configuration
+cat > /etc/asterisk/http.conf << 'EOF'
+[general]
+enabled = yes
+bindaddr = 0.0.0.0
+bindport = 8088
+EOF
+
+cat > /etc/asterisk/ari.conf << 'EOF'
+[general]
+enabled = yes
+pretty = yes
+allowed_origins = *
+
+[asterisk-gui]
+type = user
+password = aripassword
+read_only = no
+EOF
 [Unit]
 Description=Asterisk PBX and VoIP Server
 After=network.target postgresql.service
@@ -242,11 +270,13 @@ EOF
 systemctl daemon-reload > /dev/null 2>&1
 systemctl enable asterisk > /dev/null 2>&1
 systemctl restart asterisk > /dev/null 2>&1
-sleep 3
+sleep 5
 
-# Verify Asterisk is running
+# Verify Asterisk is running and ARI is enabled
 if systemctl is-active --quiet asterisk; then
     print_success "Asterisk installed and running"
+    # Wait a bit more for ARI to initialize
+    sleep 3
 else
     print_error "Failed to start Asterisk"
     journalctl -u asterisk -n 20
@@ -344,16 +374,30 @@ done
 nohup node server.js > backend.log 2>&1 &
 BACKEND_PID=$!
 
-# Wait and verify
-sleep 4
-if ps -p $BACKEND_PID > /dev/null 2>&1; then
-    print_success "Backend server started (PID: $BACKEND_PID)"
-else
-    print_error "Backend server failed to start"
-    echo "Backend log:"
-    cat backend.log
-    exit 1
-fi
+# Wait and verify - allow longer startup time for ARI connection
+print_step "Waiting for backend to establish connections..."
+for i in {1..15}; do
+    if ps -p $BACKEND_PID > /dev/null 2>&1; then
+        # Check if it's actually ready (connected to ARI)
+        if grep -q "ARI connected\|listening on\|started" backend.log 2>/dev/null; then
+            print_success "Backend server started (PID: $BACKEND_PID)"
+            break
+        fi
+        if [ $i -eq 15 ]; then
+            # Even if ARI isn't connected, backend is running - that's OK
+            if ps -p $BACKEND_PID > /dev/null 2>&1; then
+                print_success "Backend server started (PID: $BACKEND_PID)"
+                print_warning "Note: Asterisk ARI may not be connected yet (it will retry automatically)"
+            fi
+        fi
+    else
+        print_error "Backend server failed to start"
+        echo "Backend log:"
+        tail -20 backend.log
+        exit 1
+    fi
+    sleep 1
+done
 
 # ============================================================================
 # STEP 9: START FRONTEND SERVER
