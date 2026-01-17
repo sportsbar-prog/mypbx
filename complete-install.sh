@@ -89,33 +89,55 @@ print_step "Step 3/10: Setting up PostgreSQL..."
 
 # Start PostgreSQL
 systemctl start postgresql > /dev/null 2>&1 || true
-sleep 2
+sleep 3
+
+# Wait for PostgreSQL to be ready
+for i in {1..30}; do
+    if sudo -u postgres psql -c "SELECT 1" > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
 
 # Create database
 sudo -u postgres psql -c "SELECT 1 FROM pg_database WHERE datname = 'ari_api'" | grep -q 1 || \
     sudo -u postgres psql -c "CREATE DATABASE ari_api;" 2>/dev/null || true
 
-# Create user
-sudo -u postgres psql -c "DROP USER IF EXISTS ari_user;" 2>/dev/null || true
-sudo -u postgres psql -c "CREATE USER ari_user WITH ENCRYPTED PASSWORD 'change_me';" 2>/dev/null || true
+# Create user with password
+sudo -u postgres psql << PSQL_EOF
+DROP USER IF EXISTS ari_user;
+CREATE USER ari_user WITH ENCRYPTED PASSWORD 'change_me';
+ALTER ROLE ari_user CREATEDB;
+GRANT ALL PRIVILEGES ON DATABASE ari_api TO ari_user;
+PSQL_EOF
 
-# Grant privileges
-sudo -u postgres psql -c "ALTER ROLE ari_user CREATEDB;" 2>/dev/null || true
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ari_api TO ari_user;" 2>/dev/null || true
-sudo -u postgres psql -d ari_api -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ari_user;" 2>/dev/null || true
-sudo -u postgres psql -d ari_api -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ari_user;" 2>/dev/null || true
+sleep 2
+
+# Grant table privileges
+sudo -u postgres psql -d ari_api << PSQL_EOF
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ari_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ari_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO ari_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO ari_user;
+PSQL_EOF
 
 # Load schema
 if [ -f "$BACKEND_DIR/database-schema.sql" ]; then
     sudo -u postgres psql -d ari_api -f "$BACKEND_DIR/database-schema.sql" > /dev/null 2>&1 || true
 fi
 
-# Verify
-if sudo -u postgres psql -d ari_api -c "\dt" > /dev/null 2>&1; then
+# Verify connection with new user
+if PGPASSWORD=change_me sudo -u postgres psql -h localhost -U ari_user -d ari_api -c "SELECT 1" > /dev/null 2>&1; then
     print_success "PostgreSQL configured and running"
 else
-    print_error "PostgreSQL setup failed"
-    exit 1
+    print_error "PostgreSQL authentication failed - checking configuration..."
+    # Try to verify database exists
+    if sudo -u postgres psql -d ari_api -c "\dt" > /dev/null 2>&1; then
+        print_success "PostgreSQL database exists (continuing)"
+    else
+        print_error "PostgreSQL setup may have failed"
+        exit 1
+    fi
 fi
 
 # ============================================================================
@@ -298,12 +320,32 @@ cd "$BACKEND_DIR"
 # Remove old logs
 rm -f backend.log
 
+# Ensure .env has correct database URL
+if ! grep -q "DATABASE_URL" .env; then
+    echo "" >> .env
+    echo "# Database Configuration" >> .env
+    echo "DATABASE_URL=postgresql://ari_user:change_me@localhost:5432/ari_api" >> .env
+fi
+
+# Wait for PostgreSQL to be fully ready
+print_step "Waiting for PostgreSQL to be ready..."
+for i in {1..30}; do
+    if PGPASSWORD=change_me psql -h localhost -U ari_user -d ari_api -c "SELECT 1" > /dev/null 2>&1; then
+        print_success "PostgreSQL is ready"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        print_warning "PostgreSQL may not be fully ready, continuing anyway..."
+    fi
+    sleep 1
+done
+
 # Start backend
 nohup node server.js > backend.log 2>&1 &
 BACKEND_PID=$!
 
 # Wait and verify
-sleep 3
+sleep 4
 if ps -p $BACKEND_PID > /dev/null 2>&1; then
     print_success "Backend server started (PID: $BACKEND_PID)"
 else
