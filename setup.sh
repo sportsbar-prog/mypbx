@@ -47,35 +47,45 @@ fi
 print_success "Environment check passed"
 echo ""
 
-# Step 2: Start PostgreSQL
-print_step "Starting PostgreSQL service..."
-echo "$SUDO_PASS" | sudo -S service postgresql start > /dev/null 2>&1 || true
-sleep 2
-if sudo service postgresql status | grep -q "active"; then
-    print_success "PostgreSQL started"
+# Step 2: Check and start PostgreSQL (if installed)
+print_step "Checking PostgreSQL service..."
+if command -v psql &> /dev/null; then
+    echo "$SUDO_PASS" | sudo -S service postgresql start > /dev/null 2>&1 || \
+    echo "$SUDO_PASS" | sudo -S systemctl start postgresql > /dev/null 2>&1 || true
+    sleep 2
+    if sudo service postgresql status 2>/dev/null | grep -q "active" || \
+       sudo systemctl is-active --quiet postgresql 2>/dev/null; then
+        print_success "PostgreSQL started"
+    else
+        print_warning "PostgreSQL service not responding (may need manual setup)"
+    fi
 else
-    print_error "Failed to start PostgreSQL"
-    exit 1
+    print_warning "PostgreSQL not installed. To install: sudo apt-get install postgresql postgresql-contrib"
+    print_warning "Continuing with setup... (database operations will be skipped)"
 fi
 echo ""
 
-# Step 3: Create/Reset Database and User
+# Step 3: Create/Reset Database and User (if PostgreSQL available)
 print_step "Setting up database..."
+if command -v psql &> /dev/null; then
+    # Create database if not exists
+    echo "$SUDO_PASS" | sudo -S -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'ari_api'" | grep -q 1 || \
+        echo "$SUDO_PASS" | sudo -S -u postgres psql -c "CREATE DATABASE ari_api;" 2>/dev/null || true
 
-# Create database if not exists
-echo "$SUDO_PASS" | sudo -S -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'ari_api'" | grep -q 1 || \
-    echo "$SUDO_PASS" | sudo -S -u postgres psql -c "CREATE DATABASE ari_api;" 2>/dev/null || true
+    # Create/Reset user
+    echo "$SUDO_PASS" | sudo -S -u postgres psql -c "DROP USER IF EXISTS ari_user;" 2>/dev/null || true
+    echo "$SUDO_PASS" | sudo -S -u postgres psql -c "CREATE USER ari_user WITH PASSWORD 'change_me';" 2>/dev/null || true
 
-# Create/Reset user
-echo "$SUDO_PASS" | sudo -S -u postgres psql -c "DROP USER IF EXISTS ari_user;" 2>/dev/null || true
-echo "$SUDO_PASS" | sudo -S -u postgres psql -c "CREATE USER ari_user WITH PASSWORD 'change_me';" 2>/dev/null || true
+    # Grant privileges
+    echo "$SUDO_PASS" | sudo -S -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ari_api TO ari_user;" 2>/dev/null || true
+    echo "$SUDO_PASS" | sudo -S -u postgres psql -d ari_api -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ari_user;" 2>/dev/null || true
+    echo "$SUDO_PASS" | sudo -S -u postgres psql -d ari_api -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ari_user;" 2>/dev/null || true
 
-# Grant privileges
-echo "$SUDO_PASS" | sudo -S -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ari_api TO ari_user;" 2>/dev/null || true
-echo "$SUDO_PASS" | sudo -S -u postgres psql -d ari_api -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ari_user;" 2>/dev/null || true
-echo "$SUDO_PASS" | sudo -S -u postgres psql -d ari_api -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ari_user;" 2>/dev/null || true
-
-print_success "Database configured"
+    print_success "Database configured"
+else
+    print_warning "PostgreSQL not available - skipping database setup"
+    print_warning "Database must be configured manually or via other means"
+fi
 echo ""
 
 # Step 4: Setup database schema
