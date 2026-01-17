@@ -1,25 +1,35 @@
-# One-Click Installation Guide
+# One-Script Complete Installation
 
-## Quick Start (Recommended)
+## Quick Start (Easiest Way)
 
-The easiest way to install everything is with the one-click script:
+Just run this ONE script:
 
 ```bash
 cd ~/mypbx
-chmod +x install.sh
-sudo bash install.sh
+chmod +x complete-install.sh
+sudo bash complete-install.sh
 ```
 
-That's it! The script will:
-- Update system packages
-- Install all dependencies (build tools, Node.js, PostgreSQL, etc.)
-- Download and compile Asterisk 20
-- Set up PostgreSQL database
-- Install backend and frontend
-- Start all services
-- Display access information
+**The script does EVERYTHING automatically:**
+1. Updates system packages
+2. Installs all dependencies (Node.js, PostgreSQL, Asterisk, build tools, etc.)
+3. Sets up PostgreSQL database with user credentials
+4. Configures Asterisk PBX with SIP endpoints
+5. Installs backend Node.js dependencies
+6. Installs frontend React dependencies
+7. Starts backend server
+8. Starts frontend server
+9. Verifies all services are running
+10. Displays access information
 
-**Total time: ~10-20 minutes** (depending on internet speed and server performance)
+**Total time: 10-15 minutes**
+
+After completion, you'll see:
+- ✅ Access URLs
+- ✅ Login credentials
+- ✅ Database info
+- ✅ Running services status
+- ✅ Useful commands
 
 ---
 
@@ -40,7 +50,7 @@ asterisk -r
 # Backend logs
 tail -f ~/mypbx/backend-node/backend.log
 
-# Frontend logs
+# Frontend logs  
 tail -f ~/mypbx/frontend/frontend.log
 
 # Asterisk logs
@@ -62,21 +72,7 @@ cd ~/mypbx/frontend && nohup npm run dev > frontend.log 2>&1 &
 
 ---
 
-## Alternative Installation Methods
-
-If the one-click script doesn't work for some reason, you can:
-
-### Option 1: Use the Manual Asterisk Script
-```bash
-sudo bash ~/mypbx/manual-asterisk-install.sh
-```
-
-### Option 2: Follow Step-by-Step Commands
-See [INSTALLATION-COMMANDS.md](INSTALLATION-COMMANDS.md) for detailed manual steps
-
----
-
-## Troubleshooting
+## If Installation Fails
 
 ### Services not starting?
 ```bash
@@ -157,8 +153,8 @@ sudo -u postgres psql -d ari_api
 
 ## Support & Documentation
 
-- [Post-Installation Guide](POST-INSTALLATION-GUIDE.md)
-- [Installation Commands](INSTALLATION-COMMANDS.md)
-- [Manual Asterisk Script](manual-asterisk-install.sh)
-- [Asterisk Wiki](https://wiki.asterisk.org/)
-- [GitHub Repository](https://github.com/sportsbar-prog/mypbx)
+- [README.md](README.md) - Main project documentation
+- [POST-INSTALLATION-GUIDE.md](POST-INSTALLATION-GUIDE.md) - Configuration and administration
+- [INSTALLATION-COMMANDS.md](INSTALLATION-COMMANDS.md) - Manual step-by-step commands
+- [GitHub Repository](https://github.com/sportsbar-prog/mypbx) - Source code
+- [Asterisk Wiki](https://wiki.asterisk.org/) - Asterisk documentation
