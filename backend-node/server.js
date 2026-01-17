@@ -3097,24 +3097,35 @@ app.post('/api/asterisk/cli', authenticateAdmin, async (req, res) => {
     return res.status(400).json({ success: false, error: 'Command required' });
   }
   
-  // Whitelist of safe commands
+  // Whitelist of safe commands (read-only commands for safety)
   const safeCommands = [
     'core show channels',
     'core show calls',
+    'core show version',
+    'core show uptime',
+    'core show hints',
+    'core show settings',
+    'core show sysinfo',
     'pjsip show endpoints',
     'pjsip show registrations',
     'pjsip show aors',
     'pjsip show auths',
+    'pjsip show contacts',
     'dialplan show',
     'queue show',
     'bridge show all',
-    'core show version',
-    'core show uptime',
     'module show',
+    'module show like',
     'sip show peers',
     'sip show registry',
+    'sip show channels',
     'voicemail show users',
-    'core show hints'
+    'http show status',
+    'ari show apps',
+    'ari show users',
+    'database show',
+    'cdr show status',
+    'logger show channels'
   ];
   
   const isAllowed = safeCommands.some(safe => command.toLowerCase().startsWith(safe.toLowerCase()));
