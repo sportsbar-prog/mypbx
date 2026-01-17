@@ -2162,7 +2162,7 @@ app.get('/recordings', authenticateApiKey, async (req, res) => {
 app.get('/recordings/:callId', authenticateApiKey, (req, res) => {
   const { callId } = req.params;
   const st = activeCalls[callId];
-  if (!st || st.apiKeyId !== req.apiKey.id || !st.recording?.recordingId) {
+  if (!st || st.apiKeyId !== req.apiKey.id || !(st.recording && st.recording.recordingId)) {
     return res.status(404).json({ success: false, error: 'Recording not found for callId' });
   }
   res.json({ success: true, callId, recordingId: st.recording.recordingId, filename: st.recording.filename, active: !!st.recording.active });
@@ -2171,7 +2171,7 @@ app.get('/recordings/:callId', authenticateApiKey, (req, res) => {
 app.get('/recordings/:callId/download', authenticateApiKey, (req, res) => {
   const { callId } = req.params;
   const st = activeCalls[callId];
-  if (!st || st.apiKeyId !== req.apiKey.id || !st.recording?.filename) {
+  if (!st || st.apiKeyId !== req.apiKey.id || !(st.recording && st.recording.filename)) {
     return res.status(404).json({ success: false, error: 'Recording not found for callId' });
   }
   try {
@@ -2406,14 +2406,14 @@ app.post('/api/providers/:provider/render', (req, res) => {
   ['registration', 'auth', 'aor', 'endpoint', 'identify'].forEach(section => {
     if (tpl[section]) rendered[section] = renderTemplate(tpl[section], data);
   });
-  if (providerTemplates.transport?.template) {
+  if (providerTemplates.transport && providerTemplates.transport.template) {
     rendered.transport = renderTemplate(providerTemplates.transport.template, {
       port: data.port || systemSettings.transportPort,
       external_ip: data.external_ip || '0.0.0.0',
       local_net: data.local_net || '192.168.1.0/24'
     });
   }
-  if (providerTemplates.global?.template) {
+  if (providerTemplates.global && providerTemplates.global.template) {
     rendered.global = providerTemplates.global.template;
   }
   res.json({ success: true, rendered });
@@ -2467,9 +2467,9 @@ app.get('/api/stats', async (req, res) => {
       success: true, 
       stats: {
         activeCalls: Object.keys(activeCalls).length,
-        channels: channels?.length || 0,
-        bridges: bridges?.length || 0,
-        endpoints: endpoints?.length || 0,
+        channels: (channels && channels.length) || 0,
+        bridges: (bridges && bridges.length) || 0,
+        endpoints: (endpoints && endpoints.length) || 0,
         uptime: process.uptime(),
         timestamp: new Date().toISOString()
       }
