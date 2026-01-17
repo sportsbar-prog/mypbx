@@ -246,26 +246,20 @@ password = aripassword
 read_only = no
 EOF
 
-# Create systemd service file
-cat > /etc/systemd/system/asterisk.service << 'SYSTEMD_EOF'
-[Unit]
-Description=Asterisk PBX and VoIP Server
-After=network.target postgresql.service
+# Create modules.conf to explicitly enable ARI module
+cat > /etc/asterisk/modules.conf << 'EOF'
+[modules]
+autoload = yes
 
-[Service]
-Type=simple
-ExecStart=/usr/sbin/asterisk -f
-Restart=always
-RestartSec=5
-User=asterisk
-Group=asterisk
-StandardOutput=journal
-StandardError=journal
-Environment="PATH=/usr/sbin:/usr/bin:/sbin:/bin"
+[res_ari]
+load = yes
 
-[Install]
-WantedBy=multi-user.target
-SYSTEMD_EOF
+[res_http_asterisk_ari]
+load = yes
+EOF
+
+# Create systemd service file using printf
+printf '[Unit]\nDescription=Asterisk PBX and VoIP Server\nAfter=network.target postgresql.service\n\n[Service]\nType=simple\nExecStart=/usr/sbin/asterisk -f\nRestart=always\nRestartSec=5\nUser=asterisk\nGroup=asterisk\nStandardOutput=journal\nStandardError=journal\nEnvironment="PATH=/usr/sbin:/usr/bin:/sbin:/bin"\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/asterisk.service
 
 # Enable and start Asterisk
 systemctl daemon-reload > /dev/null 2>&1
@@ -351,8 +345,42 @@ cd "$BACKEND_DIR"
 # Remove old logs
 rm -f backend.log
 
-# Ensure .env has correct database URL
-if ! grep -q "DATABASE_URL" .env; then
+# Check if Asterisk ARI is listening before starting backend
+print_step "Verifying Asterisk ARI is listening on port 8088..."
+ARI_READY=false
+for i in {1..20}; do
+    if netstat -tuln 2>/dev/null | grep -q ":8088" || ss -tuln 2>/dev/null | grep -q ":8088"; then
+        print_success "Asterisk ARI is listening on port 8088"
+        ARI_READY=true
+        break
+    fi
+    if [ $i -lt 20 ]; then
+        sleep 1
+    fi
+done
+
+if [ "$ARI_READY" = "false" ]; then
+    print_warning "Asterisk ARI not yet listening - it may be slow to start, continuing anyway..."
+fi
+
+# Create .env file if it doesn't exist
+if [ ! -f .env ]; then
+    cat > .env << 'EOF'
+# Database Configuration
+DATABASE_URL=postgresql://ari_user:change_me@localhost:5432/ari_api
+
+# Asterisk ARI Configuration
+ARI_HOST=localhost
+ARI_PORT=8088
+ARI_USER=asterisk-gui
+ARI_PASSWORD=aripassword
+
+# Server Configuration
+NODE_ENV=production
+PORT=3000
+EOF
+elif ! grep -q "DATABASE_URL" .env; then
+    # Append to existing .env if DATABASE_URL is missing
     echo "" >> .env
     echo "# Database Configuration" >> .env
     echo "DATABASE_URL=postgresql://ari_user:change_me@localhost:5432/ari_api" >> .env
