@@ -130,7 +130,38 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO ari_
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO ari_user;
 SQL_EOF
 
-# Load schema
+# Create database schema for admin login
+print_step "Creating admin database schema..."
+sudo -u postgres psql -d ari_api > /dev/null 2>&1 << 'SCHEMA_EOF'
+-- Create admins table
+CREATE TABLE IF NOT EXISTS admins (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    is_active BOOLEAN DEFAULT true,
+    last_login TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create admin_sessions table
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    id SERIAL PRIMARY KEY,
+    admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+    session_token VARCHAR(500) UNIQUE NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Grant permissions
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ari_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ari_user;
+SCHEMA_EOF
+
+# Load additional schema if exists
 if [ -f "$BACKEND_DIR/database-schema.sql" ]; then
     sudo -u postgres psql -d ari_api -f "$BACKEND_DIR/database-schema.sql" > /dev/null 2>&1 || true
 fi
@@ -301,6 +332,16 @@ else
     exit 1
 fi
 
+# Generate bcrypt hash and create admin user
+print_step "Creating admin user with bcrypt hash..."
+ADMIN_HASH=$(node -e "const bcrypt = require('bcryptjs'); bcrypt.hash('admin123', 10).then(hash => console.log(hash));")
+sudo -u postgres psql -d ari_api > /dev/null 2>&1 << ADMIN_EOF
+INSERT INTO admins (username, password_hash, email, is_active)
+VALUES ('admin', '$ADMIN_HASH', 'admin@asterisk.local', true)
+ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;
+ADMIN_EOF
+print_success "Admin user created (username: admin, password: admin123)"
+
 # ============================================================================
 # STEP 6: INSTALL FRONTEND DEPENDENCIES
 # ============================================================================
@@ -323,6 +364,17 @@ else
     print_error "Failed to install frontend dependencies"
     exit 1
 fi
+
+# Create frontend .env file with server IP
+print_step "Configuring frontend API endpoint..."
+SERVER_IP=$(hostname -I | awk '{print $1}')
+if [ -z "$SERVER_IP" ]; then
+    SERVER_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -n1)
+fi
+cat > "$FRONTEND_DIR/.env" << ENV_EOF
+VITE_API_URL=http://${SERVER_IP}:3000/api
+ENV_EOF
+print_success "Frontend configured to connect to http://${SERVER_IP}:3000/api"
 
 # ============================================================================
 # STEP 7: STOP ANY EXISTING SERVICES
