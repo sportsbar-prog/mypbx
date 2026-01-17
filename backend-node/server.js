@@ -2520,9 +2520,13 @@ app.get('/api/trunks', authenticateAdmin, async (req, res) => {
 });
 
 app.post('/api/trunks', authenticateAdmin, async (req, res) => {
-  const { trunk_name, provider, username, password, server, port, context, codecs, registration_enabled } = req.body || {};
+  const { trunk_name, provider, username, password, sip_server, server, sip_port, port, context, codecs, registration_enabled, from_user } = req.body || {};
   
-  if (!trunk_name || !server) {
+  // Accept either 'server' or 'sip_server' from frontend
+  const serverAddr = server || sip_server;
+  const serverPort = port || sip_port || 5060;
+  
+  if (!trunk_name || !serverAddr) {
     return res.status(400).json({ success: false, error: 'trunk_name and server are required' });
   }
   
@@ -2532,7 +2536,7 @@ app.post('/api/trunks', authenticateAdmin, async (req, res) => {
       `INSERT INTO sip_trunks (trunk_name, provider, username, password, server, port, context, codecs, registration_enabled) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
        RETURNING *`,
-      [trunk_name, provider || 'custom', username, password, server, port || 5060, context || 'default', codecs || 'ulaw,alaw', registration_enabled !== false]
+      [trunk_name, provider || 'custom', username, password, serverAddr, serverPort, context || 'default', codecs || 'ulaw,alaw', registration_enabled !== false]
     );
     
     // Generate PJSIP config
