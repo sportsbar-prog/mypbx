@@ -60,7 +60,8 @@ export default function PJSIPConfig() {
 
       if (response.data.success) {
         setOriginalContent(content);
-        toast.success(`Configuration saved successfully! Backup: ${response.data.backup}`);
+        const backupMsg = response.data.backup ? ` Backup: ${response.data.backup}` : '';
+        toast.success(`Configuration saved successfully!${backupMsg}`);
       }
     } catch (error) {
       console.error('Failed to save configuration:', error);

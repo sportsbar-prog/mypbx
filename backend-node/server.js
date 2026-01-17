@@ -1121,6 +1121,74 @@ app.get('/api/admin/call-history', authenticateAdmin, async (req, res) => {
   }
 });
 
+// Export call history as CSV
+app.get('/api/admin/call-history/export', authenticateAdmin, async (req, res) => {
+  try {
+    const { status, apiKeyId, dateFrom, dateTo, search } = req.query;
+
+    const where = [];
+    const params = [];
+    let i = 0;
+    if (status) { params.push(status); where.push(`cl.status = $${++i}`); }
+    if (apiKeyId) { params.push(parseInt(apiKeyId, 10)); where.push(`cl.api_key_id = $${++i}`); }
+    if (dateFrom) { params.push(dateFrom); where.push(`cl.created_at >= $${++i}`); }
+    if (dateTo) { params.push(dateTo); where.push(`cl.created_at <= $${++i}`); }
+    if (search) { params.push(`%${search}%`); where.push(`(cl.call_id ILIKE $${++i} OR cl.number ILIKE $${i})`); }
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const callsQuery = `
+      SELECT cl.call_id, cl.api_key_id, ak.key_name AS api_key_name, cl.number, cl.caller_id, cl.status, cl.amd_status,
+             cl.duration, cl.recording_filename, cl.webhook_url, cl.created_at, cl.answered_at, cl.ended_at,
+             EXTRACT(EPOCH FROM (cl.ended_at - cl.answered_at)) as call_duration_seconds
+      FROM call_logs cl
+      LEFT JOIN api_keys ak ON cl.api_key_id = ak.id
+      ${whereClause}
+      ORDER BY cl.created_at DESC
+    `;
+    const result = await db.query(callsQuery, params);
+
+    // Generate CSV
+    const headers = ['Call ID', 'API Key', 'Number', 'Caller ID', 'Status', 'AMD Status', 'Duration', 'Recording', 'Created At', 'Answered At', 'Ended At'];
+    const csvRows = [headers.join(',')];
+    
+    // Helper to escape CSV values
+    const escapeCSV = (value) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      // Escape double quotes and wrap in quotes if contains comma, quote, or newline
+      if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+    
+    result.rows.forEach(row => {
+      const values = [
+        row.call_id,
+        row.api_key_name || '',
+        row.number,
+        row.caller_id,
+        row.status,
+        row.amd_status || '',
+        row.duration || '',
+        row.recording_filename || '',
+        row.created_at,
+        row.answered_at || '',
+        row.ended_at || ''
+      ];
+      csvRows.push(values.map(escapeCSV).join(','));
+    });
+
+    const csv = csvRows.join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=call-history-${Date.now()}.csv`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ success: false, error: 'Failed to export call history' });
+  }
+});
+
 // Admin analytics
 app.get('/api/admin/analytics', authenticateAdmin, async (req, res) => {
   try {
@@ -2449,12 +2517,18 @@ async function writeAsteriskConfig(filename, content) {
   try {
     // Create backup
     const backupPath = `${filePath}.backup.${Date.now()}`;
+    let backupCreated = false;
     try {
       await fs.promises.copyFile(filePath, backupPath);
+      backupCreated = true;
     } catch (e) { /* No existing file to backup */ }
     
     await fs.promises.writeFile(filePath, content, 'utf8');
-    return { success: true, filename: safeName };
+    return { 
+      success: true, 
+      filename: safeName,
+      backup: backupCreated ? path.basename(backupPath) : null
+    };
   } catch (error) {
     return { success: false, error: error.message, filename: safeName };
   }
@@ -3016,6 +3090,27 @@ app.put('/api/asterisk/configs/:filename', authenticateAdmin, async (req, res) =
     return res.status(400).json({ success: false, error: 'Content required' });
   }
   const result = await writeAsteriskConfig(req.params.filename, content);
+  res.json(result);
+});
+
+// ============== PJSIP CONFIG MANAGEMENT ==============
+
+// Get PJSIP configuration
+app.get('/api/pjsip/config', authenticateAdmin, async (req, res) => {
+  const result = await readAsteriskConfig('pjsip.conf');
+  if (!result.success) {
+    return res.status(404).json(result);
+  }
+  res.json(result);
+});
+
+// Update PJSIP configuration
+app.put('/api/pjsip/config', authenticateAdmin, async (req, res) => {
+  const { content } = req.body;
+  if (content === undefined) {
+    return res.status(400).json({ success: false, error: 'Content required' });
+  }
+  const result = await writeAsteriskConfig('pjsip.conf', content);
   res.json(result);
 });
 

@@ -84,17 +84,29 @@ export default function CallHistory() {
 
   const handleExport = async () => {
     try {
-      const response = await api.get('/admin/call-history/export', {
+      // Build query params from current filters
+      const params = new URLSearchParams();
+      if (filters.status) params.append('status', filters.status);
+      if (filters.apiKeyId) params.append('apiKeyId', filters.apiKeyId);
+      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+      if (filters.dateTo) params.append('dateTo', filters.dateTo);
+      if (filters.search) params.append('search', filters.search);
+      
+      const queryString = params.toString();
+      const url = `/admin/call-history/export${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await api.get(url, {
         responseType: 'blob',
       });
 
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const downloadUrl = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
-      link.href = url;
+      link.href = downloadUrl;
       link.setAttribute('download', `call-history-${new Date().getTime()}.csv`);
       document.body.appendChild(link);
       link.click();
-      link.parentChild.removeChild(link);
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
       toast.success('Call history exported successfully');
     } catch (error) {
       console.error('Export error:', error);
