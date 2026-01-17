@@ -103,34 +103,32 @@ done
 sudo -u postgres psql -c "SELECT 1 FROM pg_database WHERE datname = 'ari_api'" | grep -q 1 || \
     sudo -u postgres psql -c "CREATE DATABASE ari_api;" 2>/dev/null || true
 
-# Create user with password
-sudo -u postgres psql << PSQL_EOF
--- Drop user if exists (with cascade to handle dependencies)
-DROP USER IF EXISTS ari_user CASCADE;
--- Create new user
+# Drop existing user if exists
+sudo -u postgres psql > /dev/null 2>&1 << 'SQL_EOF'
+DROP USER IF EXISTS ari_user;
+SQL_EOF
+
+# Create database if not exists
+sudo -u postgres psql > /dev/null 2>&1 << 'SQL_EOF'
+CREATE DATABASE ari_api;
+SQL_EOF
+
+# Create user and grant privileges
+sudo -u postgres psql > /dev/null 2>&1 << 'SQL_EOF'
 CREATE USER ari_user WITH ENCRYPTED PASSWORD 'change_me';
 ALTER ROLE ari_user CREATEDB;
-PSQL_EOF
-
-sleep 2
-
-# Grant privileges to database
-sudo -u postgres psql << PSQL_EOF
--- Make sure database exists
-CREATE DATABASE IF NOT EXISTS ari_api;
--- Grant database privileges
 GRANT ALL PRIVILEGES ON DATABASE ari_api TO ari_user;
-PSQL_EOF
+SQL_EOF
 
 sleep 2
 
 # Grant table privileges
-sudo -u postgres psql -d ari_api << PSQL_EOF
+sudo -u postgres psql -d ari_api > /dev/null 2>&1 << 'SQL_EOF'
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ari_user;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ari_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO ari_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO ari_user;
-PSQL_EOF
+SQL_EOF
 
 # Load schema
 if [ -f "$BACKEND_DIR/database-schema.sql" ]; then
@@ -247,6 +245,9 @@ type = user
 password = aripassword
 read_only = no
 EOF
+
+# Create systemd service file
+cat > /etc/systemd/system/asterisk.service << 'SYSTEMD_EOF'
 [Unit]
 Description=Asterisk PBX and VoIP Server
 After=network.target postgresql.service
@@ -264,7 +265,7 @@ Environment="PATH=/usr/sbin:/usr/bin:/sbin:/bin"
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SYSTEMD_EOF
 
 # Enable and start Asterisk
 systemctl daemon-reload > /dev/null 2>&1
