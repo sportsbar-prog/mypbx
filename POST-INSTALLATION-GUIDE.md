@@ -438,4 +438,4 @@ core> exit                          # Exit CLI
 ---
 
 **Last Updated**: January 17, 2026
-**Version**: Asterisk 18.23.0 + Web GUI v1.0
+**Version**: Asterisk 20.8.0 + Web GUI v1.0

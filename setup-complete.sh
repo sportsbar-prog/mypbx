@@ -186,7 +186,7 @@ fi
 # STEP 6: Install Asterisk from Source
 # ============================================================================
 print_step "Downloading Asterisk source..."
-ASTERISK_VERSION="18.23.0"
+ASTERISK_VERSION="20.8.0"
 
 # Try multiple download sources
 ASTERISK_URLS=(
