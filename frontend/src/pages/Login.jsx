@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import apiClient from '../services/api';
 
-export default function Login() {
+export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,8 +42,10 @@ export default function Login() {
         localStorage.setItem('adminToken', response.data.token);
         localStorage.setItem('adminUsername', response.data.username);
         
-        // Set auth header for future requests
-        apiClient.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
+        // Notify parent component about successful login
+        if (onLogin) {
+          onLogin();
+        }
         
         toast.success('Login successful!');
         navigate('/');

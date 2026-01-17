@@ -46,12 +46,24 @@ let ariClient = null;
 const RECORDINGS_DIR = process.env.RECORDINGS_DIR || '/var/spool/asterisk/recording';
 const AST_SOUNDS_DIR = process.env.ASTERISK_SOUNDS_DIR || '/var/lib/asterisk/sounds';
 
+// Try to create recordings directory, fallback to /tmp if permission denied
+let actualRecordingsDir = RECORDINGS_DIR;
 try {
   if (!fs.existsSync(RECORDINGS_DIR)) {
     fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
   }
 } catch (e) {
   console.warn('Warning: unable to create recordings directory:', e.message);
+  // Fallback to /tmp/asterisk-recordings
+  actualRecordingsDir = '/tmp/asterisk-recordings';
+  try {
+    if (!fs.existsSync(actualRecordingsDir)) {
+      fs.mkdirSync(actualRecordingsDir, { recursive: true });
+    }
+    console.log(`📁 Using fallback recordings directory: ${actualRecordingsDir}`);
+  } catch (fallbackErr) {
+    console.error('❌ Cannot create recordings directory:', fallbackErr.message);
+  }
 }
 
 // Load provider templates
@@ -153,8 +165,8 @@ function setupCallTimeout(callId, ringTimeoutSeconds = 30) {
 
 function safeRecordingPath(filename) {
   const safeName = path.basename(filename);
-  const p = path.normalize(path.join(RECORDINGS_DIR, safeName));
-  if (!p.startsWith(RECORDINGS_DIR)) {
+  const p = path.normalize(path.join(actualRecordingsDir, safeName));
+  if (!p.startsWith(actualRecordingsDir)) {
     throw new Error('Invalid path');
   }
   return p;
@@ -495,11 +507,13 @@ const authenticateApiKey = async (req, res, next) => {
 };
 
 const authenticateAdmin = async (req, res, next) => {
-  const token = req.headers.authorization?.substring(7);
+  const authHeader = req.headers.authorization;
   
-  if (!token) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ success: false, error: 'Access token required' });
   }
+  
+  const token = authHeader.substring(7);
   
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -2054,9 +2068,9 @@ app.get('/recordings', authenticateApiKey, async (req, res) => {
 
     let files = [];
     try {
-      const allFiles = fs.readdirSync(RECORDINGS_DIR).filter(f => f.endsWith('.wav'));
+      const allFiles = fs.readdirSync(actualRecordingsDir).filter(f => f.endsWith('.wav'));
       for (const f of allFiles) {
-        const full = path.join(RECORDINGS_DIR, f);
+        const full = path.join(actualRecordingsDir, f);
         const stat = fs.statSync(full);
         files.push({ filename: f, size: stat.size, createdAt: stat.birthtime || stat.ctime });
       }

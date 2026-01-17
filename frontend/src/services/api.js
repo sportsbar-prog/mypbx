@@ -12,6 +12,11 @@ const apiClient = axios.create({
 // Add request interceptor
 apiClient.interceptors.request.use(
   (config) => {
+    // Get token from localStorage and add to headers
+    const token = localStorage.getItem('adminToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => {
@@ -24,6 +29,19 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     console.error('API Error:', error);
+    
+    // Handle unauthorized errors
+    if (error.response && error.response.status === 401) {
+      // Clear token and redirect to login
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('adminUsername');
+      
+      // Only redirect if not already on login page
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+    }
+    
     return Promise.reject(error);
   }
 );

@@ -44,15 +44,18 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if token exists
+    // Check if token exists on app load
     const token = localStorage.getItem('adminToken');
     if (token) {
-      // Set auth header
-      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setIsAuthenticated(true);
     }
     setLoading(false);
   }, []);
+
+  // Function to handle login
+  const handleAuthentication = (status) => {
+    setIsAuthenticated(status);
+  };
 
   if (loading) {
     return null; // or a loading spinner
@@ -63,12 +66,12 @@ function App() {
       <CssBaseline />
       <Router>
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<Login onLogin={() => handleAuthentication(true)} />} />
           <Route
             path="/*"
             element={
               <ProtectedRoute isAuthenticated={isAuthenticated}>
-                <Layout>
+                <Layout onLogout={() => handleAuthentication(false)}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/channels" element={<Channels />} />

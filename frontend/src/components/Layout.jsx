@@ -15,6 +15,7 @@ import {
   ListItemText,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import LogoutIcon from '@mui/icons-material/Logout';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import PhoneIcon from '@mui/icons-material/Phone';
 import DevicesIcon from '@mui/icons-material/Devices';
@@ -52,13 +53,22 @@ const menuItems = [
   { text: 'User Dashboard', icon: <DashboardIcon />, path: '/user-dashboard' },
 ];
 
-export default function Layout({ children }) {
+export default function Layout({ children, onLogout }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminUsername');
+    if (onLogout) {
+      onLogout();
+    }
+    navigate('/login');
   };
 
   const drawer = (
@@ -128,9 +138,17 @@ export default function Layout({ children }) {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div">
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             Asterisk PBX Management
           </Typography>
+          <IconButton
+            color="inherit"
+            aria-label="logout"
+            onClick={handleLogout}
+            title="Logout"
+          >
+            <LogoutIcon />
+          </IconButton>
         </Toolbar>
       </AppBar>
       <Box
