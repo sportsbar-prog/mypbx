@@ -59,7 +59,7 @@ export default function UserDashboard() {
   const loadDashboard = async () => {
     setLoading(true);
     try {
-      const response = await api.post('/api/dashboard', {});
+      const response = await api.get('/dashboard');
 
       if (response.data.success) {
         setStats(response.data.stats);
@@ -78,11 +78,12 @@ export default function UserDashboard() {
   const loadCallLogs = async () => {
     setLoading(true);
     try {
-      const response = await api.post('/api/call-logs', {
+      const params = new URLSearchParams({
         page: callsPage,
         page_size: pageSize,
-        status: statusFilter,
+        ...(statusFilter && { status: statusFilter })
       });
+      const response = await api.get(`/call-logs?${params}`);
 
       if (response.data.success) {
         setCallLogs(response.data.logs || []);

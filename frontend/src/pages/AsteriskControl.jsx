@@ -10,8 +10,7 @@ import {
   CheckCircle as CheckIcon, Error as ErrorIcon,
   PlayArrow as RunIcon
 } from '@mui/icons-material';
-
-const API_URL = 'http://localhost:3000';
+import { api } from '../services/api';
 
 // Predefined safe commands
 const QUICK_COMMANDS = [
@@ -49,21 +48,17 @@ function AsteriskControl() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   
-  const token = localStorage.getItem('adminToken');
-  const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-
   const fetchStatus = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/status`, { headers });
-      const data = await res.json();
-      if (data.success) {
-        setStatus(data.status);
+      const res = await api.get('/asterisk/status');
+      if (res.data.success) {
+        setStatus(res.data.status);
         setError(null);
       } else {
-        setError(data.error || 'Failed to fetch Asterisk status');
+        setError(res.data.error || 'Failed to fetch Asterisk status');
         setStatus(null);
-        console.error('Status fetch error:', data.error);
+        console.error('Status fetch error:', res.data.error);
       }
     } catch (err) {
       setError(`Failed to fetch Asterisk status: ${err.message}`);
@@ -83,16 +78,11 @@ function AsteriskControl() {
     setExecuting(true);
     setOutput('');
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/cli`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ command: commandToRun })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setOutput(data.output);
+      const res = await api.post('/asterisk/cli', { command: commandToRun });
+      if (res.data.success) {
+        setOutput(res.data.output);
       } else {
-        setOutput(`Error: ${data.error}\n\nAllowed commands:\n${(data.allowedCommands || []).join('\n')}`);
+        setOutput(`Error: ${res.data.error}\n\nAllowed commands:\n${(res.data.allowedCommands || []).join('\n')}`);
       }
     } catch (err) {
       setOutput(`Error: ${err.message}`);

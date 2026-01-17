@@ -856,6 +856,81 @@ app.post('/api/admin/login', async (req, res) => {
   }
 });
 
+// Admin dashboard stats
+app.get('/api/dashboard', authenticateAdmin, async (req, res) => {
+  try {
+    const stats = await db.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM api_keys WHERE is_active = true) as total_api_keys,
+        (SELECT COALESCE(SUM(credits), 0) FROM api_keys) as total_credits,
+        (SELECT COUNT(*) FROM call_logs WHERE created_at >= CURRENT_DATE) as calls_today,
+        (SELECT COUNT(*) FROM call_logs WHERE status = 'completed' AND created_at >= CURRENT_DATE) as successful_calls_today,
+        (SELECT COUNT(*) FROM call_logs WHERE created_at >= CURRENT_DATE - INTERVAL '7 days') as calls_this_week
+    `);
+    
+    const recentCalls = await db.query(
+      `SELECT cl.*, ak.key_name 
+       FROM call_logs cl 
+       LEFT JOIN api_keys ak ON cl.api_key_id = ak.id 
+       ORDER BY cl.created_at DESC 
+       LIMIT 10`
+    );
+    
+    res.json({ 
+      success: true, 
+      stats: stats.rows[0],
+      recent_calls: recentCalls.rows
+    });
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.status(500).json({ success: false, error: 'Failed to load dashboard' });
+  }
+});
+
+// Get call logs (admin)
+app.get('/api/call-logs', authenticateAdmin, async (req, res) => {
+  try {
+    const { page = 1, page_size = 20, status } = req.query;
+    const offset = (page - 1) * page_size;
+    
+    let whereClause = '';
+    const params = [page_size, offset];
+    
+    if (status) {
+      whereClause = 'WHERE cl.status = $3';
+      params.push(status);
+    }
+    
+    const logsQuery = `
+      SELECT cl.*, ak.key_name 
+      FROM call_logs cl 
+      LEFT JOIN api_keys ak ON cl.api_key_id = ak.id 
+      ${whereClause}
+      ORDER BY cl.created_at DESC 
+      LIMIT $1 OFFSET $2
+    `;
+    
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM call_logs cl 
+      ${whereClause}
+    `;
+    
+    const logs = await db.query(logsQuery, params);
+    const countParams = status ? [status] : [];
+    const count = await db.query(countQuery, countParams);
+    
+    res.json({
+      success: true,
+      logs: logs.rows,
+      total_count: parseInt(count.rows[0].total)
+    });
+  } catch (error) {
+    console.error('Call logs error:', error);
+    res.status(500).json({ success: false, error: 'Failed to load call logs' });
+  }
+});
+
 // Get API keys (admin only)
 app.get('/api/admin/keys', authenticateAdmin, async (req, res) => {
   try {
