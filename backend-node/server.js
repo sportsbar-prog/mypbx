@@ -2799,28 +2799,41 @@ async function reloadAsteriskConfig(module = 'all') {
     // Execute via asterisk -rx
     const cmd = `asterisk -rx "${reloadCmd}"`;
     
-    console.log(`[RELOAD] Executing: ${cmd}`);
+    console.log(`[RELOAD-EXEC] Command: ${cmd}`);
     
-    exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`[RELOAD-ERROR] Command: ${cmd}`, { 
-          code: error.code, 
-          signal: error.signal,
-          message: error.message, 
-          stderr, 
-          stdout 
-        });
-        // Check if error is just empty output (which is okay for some reloads)
-        if (stdout && stdout.length > 0) {
-          resolve({ success: true, output: stdout });
-        } else if (stderr && stderr.includes('reload')) {
-          resolve({ success: true, output: stderr });
-        } else {
-          resolve({ success: false, error: `Failed to reload ${module}: ${stderr || error.message}` });
-        }
+    exec(cmd, { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      // Log everything for debugging
+      console.log(`[RELOAD-RESPONSE]`, { error: error ? error.code : 'none', stdout, stderr });
+      
+      // Success if:
+      // 1. No error and has output
+      // 2. Has output (even with error code - some modules return success but with non-zero exit)
+      // 3. stderr contains success message
+      const hasOutput = stdout && stdout.trim().length > 0;
+      const hasSuccessMessage = stdout && stdout.includes('reloaded successfully');
+      const noError = !error;
+      
+      if (noError && hasOutput) {
+        // Clean successful execution
+        console.log(`[RELOAD-SUCCESS] Clean execution with output`);
+        resolve({ success: true, output: stdout });
+      } else if (hasOutput || hasSuccessMessage) {
+        // Has output indicating success despite exit code
+        console.log(`[RELOAD-SUCCESS] Output indicates success despite error code`);
+        resolve({ success: true, output: stdout || stderr });
+      } else if (error && error.killed) {
+        // Timeout occurred
+        console.error(`[RELOAD-TIMEOUT] Command timeout for ${module}`);
+        resolve({ success: false, error: `Reload timeout - command took too long` });
+      } else if (error && error.code === 127) {
+        // Command not found
+        console.error(`[RELOAD-NOTFOUND] asterisk command not found`);
+        resolve({ success: false, error: `asterisk command not found in system PATH` });
       } else {
-        console.log(`[RELOAD-SUCCESS] ${module} reloaded. Output:`, stdout);
-        resolve({ success: true, output: stdout || `${module} reloaded successfully` });
+        // Generic error
+        const errorMsg = stderr || (error ? error.message : 'Unknown error');
+        console.error(`[RELOAD-ERROR]`, errorMsg);
+        resolve({ success: false, error: errorMsg });
       }
     });
   });
@@ -3367,33 +3380,37 @@ app.get('/api/asterisk/status', authenticateAdmin, async (req, res) => {
 app.post('/api/asterisk/reload', authenticateAdmin, async (req, res) => {
   const { module = 'all' } = req.body;
   
+  console.log(`[API-RELOAD] Request to reload module: ${module}`);
+  
   try {
     // Execute reload
     const result = await reloadAsteriskConfig(module);
     
-    if (!result.success) {
-      return res.status(400).json(result);
-    }
+    console.log(`[API-RELOAD] Result:`, result);
     
-    // Wait a moment for reload to complete
-    await new Promise(r => setTimeout(r, 1000));
-    
-    // Verify reload by checking current status
-    const verifyCmd = module === 'all' 
-      ? 'asterisk -rx "core show uptime"'
-      : `asterisk -rx "${module === 'pjsip' ? 'pjsip' : module} show status"`;
-    
-    exec(verifyCmd, (err, stdout) => {
-      const verification = stdout && stdout.length > 0 ? 'verified' : 'completed';
-      res.json({ 
+    // Always return the result, even if there was an error
+    if (result.success) {
+      res.status(200).json({ 
         success: true, 
-        message: `${module} reload ${verification}`,
-        output: result.output || stdout,
+        message: `${module} reload completed`,
+        output: result.output,
         timestamp: new Date().toISOString()
       });
-    });
+    } else {
+      res.status(200).json({ 
+        success: false,
+        message: `${module} reload failed`,
+        error: result.error,
+        timestamp: new Date().toISOString()
+      });
+    }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error(`[API-RELOAD-ERROR]`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      message: 'Internal server error during reload'
+    });
   }
 });
 
