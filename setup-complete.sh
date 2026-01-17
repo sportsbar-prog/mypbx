@@ -112,9 +112,24 @@ if check_command "node"; then
     NODE_VERSION=$(node -v)
     print_success "Node.js $NODE_VERSION already installed"
 else
-    curl -fsSL https://deb.nodesource.com/setup_18.x | echo "$SUDO_PASS" | sudo -S bash -
-    echo "$SUDO_PASS" | sudo -S apt-get install -y nodejs > /dev/null 2>&1
-    print_success "Node.js and npm installed"
+    echo "$SUDO_PASS" | sudo -S apt-get install -y curl gnupg > /dev/null 2>&1
+    
+    # Try NodeSource repository
+    if curl -fsSL https://deb.nodesource.com/setup_18.x 2>/dev/null | \
+       echo "$SUDO_PASS" | sudo -S bash - > /dev/null 2>&1; then
+        echo "$SUDO_PASS" | sudo -S apt-get install -y nodejs > /dev/null 2>&1
+        if check_command "node"; then
+            print_success "Node.js and npm installed from NodeSource"
+        else
+            print_warning "NodeSource install failed, trying apt-get..."
+            echo "$SUDO_PASS" | sudo -S apt-get install -y nodejs npm > /dev/null 2>&1
+            print_success "Node.js and npm installed"
+        fi
+    else
+        print_warning "NodeSource setup failed, trying default packages..."
+        echo "$SUDO_PASS" | sudo -S apt-get install -y nodejs npm > /dev/null 2>&1
+        print_success "Node.js and npm installed"
+    fi
 fi
 
 # ============================================================================
@@ -179,13 +194,25 @@ if [ ! -d "$ASTERISK_BUILD_DIR" ]; then
     mkdir -p /tmp/asterisk-build
     cd /tmp/asterisk-build
     
-    if ! wget -q "$ASTERISK_URL" -O asterisk.tar.gz; then
-        print_error "Failed to download Asterisk"
-        print_warning "Trying alternative download method..."
-        curl -s -o asterisk.tar.gz "$ASTERISK_URL"
+    if ! wget -q "$ASTERISK_URL" -O asterisk.tar.gz 2>/dev/null; then
+        print_warning "wget failed, trying curl..."
+        if ! curl -s -o asterisk.tar.gz "$ASTERISK_URL" 2>/dev/null; then
+            print_error "Failed to download Asterisk with both wget and curl"
+            exit 1
+        fi
     fi
     
-    tar xzf asterisk.tar.gz
+    tar xzf asterisk.tar.gz > /dev/null 2>&1
+    
+    # The tar extracts to asterisk-VERSION directory
+    if [ -d "asterisk-${ASTERISK_VERSION}" ]; then
+        ASTERISK_BUILD_DIR="$(pwd)/asterisk-${ASTERISK_VERSION}"
+    else
+        print_error "Asterisk source directory not found after extraction"
+        ls -la
+        exit 1
+    fi
+    
     print_success "Asterisk source downloaded"
 else
     print_success "Asterisk source already downloaded"
