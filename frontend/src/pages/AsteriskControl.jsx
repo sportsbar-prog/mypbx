@@ -59,9 +59,16 @@ function AsteriskControl() {
       const data = await res.json();
       if (data.success) {
         setStatus(data.status);
+        setError(null);
+      } else {
+        setError(data.error || 'Failed to fetch Asterisk status');
+        setStatus(null);
+        console.error('Status fetch error:', data.error);
       }
     } catch (err) {
-      setError('Failed to fetch Asterisk status');
+      setError(`Failed to fetch Asterisk status: ${err.message}`);
+      setStatus(null);
+      console.error('Status fetch error:', err);
     } finally {
       setLoading(false);
     }
@@ -130,6 +137,8 @@ function AsteriskControl() {
               <Typography variant="h6" gutterBottom>System Status</Typography>
               {loading ? (
                 <CircularProgress size={24} />
+              ) : error ? (
+                <Alert severity="error">{error}</Alert>
               ) : status ? (
                 <Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>

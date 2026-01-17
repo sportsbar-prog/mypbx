@@ -516,19 +516,26 @@ const authenticateAdmin = async (req, res, next) => {
   const token = authHeader.substring(7);
   
   try {
+    // Verify JWT signature and expiration
     const decoded = jwt.verify(token, JWT_SECRET);
-    const session = await db.query(
-      'SELECT s.*, a.username FROM admin_sessions s JOIN admins a ON s.admin_id = a.id WHERE s.session_token = $1 AND s.is_active = true AND s.expires_at > CURRENT_TIMESTAMP',
-      [token]
+    console.log(`✅ JWT verified for adminId: ${decoded.adminId}`);
+    
+    // Get admin username from database
+    const admin = await db.query(
+      'SELECT id, username FROM admins WHERE id = $1 AND is_active = true',
+      [decoded.adminId]
     );
     
-    if (session.rows.length === 0) {
-      return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    if (admin.rows.length === 0) {
+      console.warn(`❌ Admin not found or inactive: ${decoded.adminId}`);
+      return res.status(401).json({ success: false, error: 'Admin not found' });
     }
     
-    req.admin = { id: decoded.adminId, username: session.rows[0].username };
+    req.admin = { id: decoded.adminId, username: admin.rows[0].username };
+    console.log(`✅ Admin authenticated: ${admin.rows[0].username}`);
     next();
   } catch (error) {
+    console.error('❌ Admin authentication error:', error.message);
     return res.status(401).json({ success: false, error: 'Invalid token' });
   }
 };
@@ -3044,18 +3051,31 @@ app.post('/api/asterisk/cli', authenticateAdmin, async (req, res) => {
 // Get Asterisk version and status
 app.get('/api/asterisk/status', authenticateAdmin, async (req, res) => {
   try {
+    const execWithTimeout = (command, timeoutMs = 5000) => {
+      return new Promise(resolve => {
+        const timer = setTimeout(() => {
+          resolve(null);
+        }, timeoutMs);
+        
+        exec(command, (e, out) => {
+          clearTimeout(timer);
+          resolve(e ? null : out.trim());
+        });
+      });
+    };
+    
     const results = await Promise.all([
-      new Promise(resolve => exec('asterisk -rx "core show version"', (e, out) => resolve(e ? null : out.trim()))),
-      new Promise(resolve => exec('asterisk -rx "core show uptime"', (e, out) => resolve(e ? null : out.trim()))),
-      new Promise(resolve => exec('asterisk -rx "core show channels count"', (e, out) => resolve(e ? null : out.trim())))
+      execWithTimeout('asterisk -rx "core show version"', 5000),
+      execWithTimeout('asterisk -rx "core show uptime"', 5000),
+      execWithTimeout('asterisk -rx "core show channels count"', 5000)
     ]);
     
     res.json({
       success: true,
       status: {
-        version: results[0],
-        uptime: results[1],
-        channels: results[2],
+        version: results[0] || 'Version: Unavailable',
+        uptime: results[1] || 'Uptime: Unavailable',
+        channels: results[2] || 'Channels: Unavailable',
         ariConnected: ariClient !== null
       }
     });
