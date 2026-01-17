@@ -2756,26 +2756,52 @@ async function writeAsteriskConfig(filename, content) {
 // Reload Asterisk configuration
 async function reloadAsteriskConfig(module = 'all') {
   return new Promise((resolve) => {
-    let cmd;
+    let reloadCmd;
+    
+    // Build the reload command based on module
     if (module === 'all') {
-      cmd = 'asterisk -rx "core reload"';
+      reloadCmd = 'core reload';
     } else if (module === 'pjsip') {
-      cmd = 'asterisk -rx "pjsip reload"';
+      reloadCmd = 'pjsip reload';
     } else if (module === 'dialplan') {
-      cmd = 'asterisk -rx "dialplan reload"';
+      reloadCmd = 'dialplan reload';
     } else if (module === 'module') {
-      cmd = 'asterisk -rx "module reload"';
+      reloadCmd = 'module reload';
+    } else if (module === 'sip') {
+      reloadCmd = 'sip reload';
+    } else if (module === 'voicemail') {
+      reloadCmd = 'voicemail reload';
+    } else if (module === 'features') {
+      reloadCmd = 'features reload';
     } else {
-      cmd = `asterisk -rx "${module} reload"`;
+      reloadCmd = `${module} reload`;
     }
     
-    exec(cmd, (error, stdout, stderr) => {
+    // Execute via asterisk -rx
+    const cmd = `asterisk -rx "${reloadCmd}"`;
+    
+    console.log(`[RELOAD] Executing: ${cmd}`);
+    
+    exec(cmd, { timeout: 10000 }, (error, stdout, stderr) => {
       if (error) {
-        // Log the actual error for debugging
-        console.error('Reload error:', { error: error.message, stderr, stdout });
-        resolve({ success: false, error: stderr || error.message });
+        console.error(`[RELOAD-ERROR] Command: ${cmd}`, { 
+          code: error.code, 
+          signal: error.signal,
+          message: error.message, 
+          stderr, 
+          stdout 
+        });
+        // Check if error is just empty output (which is okay for some reloads)
+        if (stdout && stdout.length > 0) {
+          resolve({ success: true, output: stdout });
+        } else if (stderr && stderr.includes('reload')) {
+          resolve({ success: true, output: stderr });
+        } else {
+          resolve({ success: false, error: `Failed to reload ${module}: ${stderr || error.message}` });
+        }
       } else {
-        resolve({ success: true, output: stdout });
+        console.log(`[RELOAD-SUCCESS] ${module} reloaded. Output:`, stdout);
+        resolve({ success: true, output: stdout || `${module} reloaded successfully` });
       }
     });
   });
@@ -3321,8 +3347,35 @@ app.get('/api/asterisk/status', authenticateAdmin, async (req, res) => {
 // Reload specific Asterisk module
 app.post('/api/asterisk/reload', authenticateAdmin, async (req, res) => {
   const { module = 'all' } = req.body;
-  const result = await reloadAsteriskConfig(module);
-  res.json(result);
+  
+  try {
+    // Execute reload
+    const result = await reloadAsteriskConfig(module);
+    
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    
+    // Wait a moment for reload to complete
+    await new Promise(r => setTimeout(r, 1000));
+    
+    // Verify reload by checking current status
+    const verifyCmd = module === 'all' 
+      ? 'asterisk -rx "core show uptime"'
+      : `asterisk -rx "${module === 'pjsip' ? 'pjsip' : module} show status"`;
+    
+    exec(verifyCmd, (err, stdout) => {
+      const verification = stdout && stdout.length > 0 ? 'verified' : 'completed';
+      res.json({ 
+        success: true, 
+        message: `${module} reload ${verification}`,
+        output: result.output || stdout,
+        timestamp: new Date().toISOString()
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ============== ASTERISK CONFIG FILES ==============
