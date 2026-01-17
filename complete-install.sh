@@ -1,0 +1,471 @@
+#!/bin/bash
+# ============================================================================
+# ASTERISK PBX + WEB GUI - COMPLETE ONE-SCRIPT INSTALLATION
+# This single script installs and runs everything without any user input needed
+# ============================================================================
+
+set -e
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+print_header() {
+    echo ""
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC} $1"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+print_step() {
+    echo -e "${BLUE}→${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+# Ensure running as root
+if [ "$EUID" -ne 0 ]; then
+    print_error "This script must be run as root"
+    echo "Run with: sudo bash complete-install.sh"
+    exit 1
+fi
+
+print_header "ASTERISK PBX + WEB GUI - COMPLETE INSTALLATION"
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_DIR="$PROJECT_ROOT/backend-node"
+FRONTEND_DIR="$PROJECT_ROOT/frontend"
+
+# ============================================================================
+# STEP 1: UPDATE SYSTEM
+# ============================================================================
+print_step "Step 1/10: Updating system packages..."
+apt-get update > /dev/null 2>&1
+apt-get upgrade -y > /dev/null 2>&1
+print_success "System packages updated"
+
+# ============================================================================
+# STEP 2: INSTALL ALL DEPENDENCIES
+# ============================================================================
+print_step "Step 2/10: Installing all dependencies (this may take 2-3 minutes)..."
+
+PACKAGES=(
+    "build-essential" "curl" "wget" "git" "libssl-dev" "libncurses5-dev"
+    "libsqlite3-dev" "libjansson-dev" "libxml2-dev" "libpq-dev" "libgsm1-dev"
+    "libtiff-dev" "libasound2-dev" "sox" "libc-client2007e-dev" "sqlite3"
+    "uuid-dev" "flex" "bison" "postgresql" "postgresql-contrib" "nodejs" "npm"
+    "asterisk" "asterisk-dev" "asterisk-config"
+)
+
+# Install all at once
+INSTALL_LIST=""
+for pkg in "${PACKAGES[@]}"; do
+    if ! dpkg -l | grep -q "^ii  $pkg"; then
+        INSTALL_LIST="$INSTALL_LIST $pkg"
+    fi
+done
+
+if [ ! -z "$INSTALL_LIST" ]; then
+    apt-get install -y $INSTALL_LIST > /dev/null 2>&1
+fi
+
+print_success "All dependencies installed"
+
+# ============================================================================
+# STEP 3: START AND SETUP POSTGRESQL
+# ============================================================================
+print_step "Step 3/10: Setting up PostgreSQL..."
+
+# Start PostgreSQL
+systemctl start postgresql > /dev/null 2>&1 || true
+sleep 2
+
+# Create database
+sudo -u postgres psql -c "SELECT 1 FROM pg_database WHERE datname = 'ari_api'" | grep -q 1 || \
+    sudo -u postgres psql -c "CREATE DATABASE ari_api;" 2>/dev/null || true
+
+# Create user
+sudo -u postgres psql -c "DROP USER IF EXISTS ari_user;" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE USER ari_user WITH ENCRYPTED PASSWORD 'change_me';" 2>/dev/null || true
+
+# Grant privileges
+sudo -u postgres psql -c "ALTER ROLE ari_user CREATEDB;" 2>/dev/null || true
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ari_api TO ari_user;" 2>/dev/null || true
+sudo -u postgres psql -d ari_api -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ari_user;" 2>/dev/null || true
+sudo -u postgres psql -d ari_api -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ari_user;" 2>/dev/null || true
+
+# Load schema
+if [ -f "$BACKEND_DIR/database-schema.sql" ]; then
+    sudo -u postgres psql -d ari_api -f "$BACKEND_DIR/database-schema.sql" > /dev/null 2>&1 || true
+fi
+
+# Verify
+if sudo -u postgres psql -d ari_api -c "\dt" > /dev/null 2>&1; then
+    print_success "PostgreSQL configured and running"
+else
+    print_error "PostgreSQL setup failed"
+    exit 1
+fi
+
+# ============================================================================
+# STEP 4: SETUP ASTERISK
+# ============================================================================
+print_step "Step 4/10: Configuring Asterisk..."
+
+# Create asterisk user if doesn't exist
+if ! id -u asterisk > /dev/null 2>&1; then
+    useradd -r -s /bin/bash asterisk
+fi
+
+# Ensure asterisk config directory exists
+mkdir -p /etc/asterisk
+chown -R asterisk:asterisk /etc/asterisk
+
+# Create basic SIP configuration
+cat > /etc/asterisk/pjsip.conf << 'EOF'
+[global]
+type = global
+
+[transport-udp]
+type = transport
+protocol = udp
+bind = 0.0.0.0:5060
+
+[endpoint/101]
+type = endpoint
+context = default
+disallow = all
+allow = ulaw
+auth = auth101
+aors = 101
+
+[auth/auth101]
+type = auth
+auth_type = userpass
+username = 101
+password = 101
+
+[aor/101]
+type = aor
+max_contacts = 1
+contact = sip:101@127.0.0.1
+
+[endpoint/102]
+type = endpoint
+context = default
+disallow = all
+allow = ulaw
+auth = auth102
+aors = 102
+
+[auth/auth102]
+type = auth
+auth_type = userpass
+username = 102
+password = 102
+
+[aor/102]
+type = aor
+max_contacts = 1
+contact = sip:102@127.0.0.1
+EOF
+
+# Create extensions configuration
+cat > /etc/asterisk/extensions.conf << 'EOF'
+[general]
+static = yes
+writeprotect = no
+
+[default]
+exten => 101,1,Dial(PJSIP/101)
+exten => 102,1,Dial(PJSIP/102)
+exten => _X.,1,Dial(PJSIP/${EXTEN})
+exten => _X.,2,VoiceMail(${EXTEN}@default)
+exten => _X.,3,Hangup()
+EOF
+
+# Create systemd service
+cat > /etc/systemd/system/asterisk.service << 'EOF'
+[Unit]
+Description=Asterisk PBX and VoIP Server
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/asterisk -f
+Restart=always
+RestartSec=5
+User=asterisk
+Group=asterisk
+StandardOutput=journal
+StandardError=journal
+Environment="PATH=/usr/sbin:/usr/bin:/sbin:/bin"
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start Asterisk
+systemctl daemon-reload > /dev/null 2>&1
+systemctl enable asterisk > /dev/null 2>&1
+systemctl restart asterisk > /dev/null 2>&1
+sleep 3
+
+# Verify Asterisk is running
+if systemctl is-active --quiet asterisk; then
+    print_success "Asterisk installed and running"
+else
+    print_error "Failed to start Asterisk"
+    journalctl -u asterisk -n 20
+    exit 1
+fi
+
+# ============================================================================
+# STEP 5: INSTALL BACKEND DEPENDENCIES
+# ============================================================================
+print_step "Step 5/10: Installing backend dependencies..."
+
+if [ ! -d "$BACKEND_DIR" ]; then
+    print_error "Backend directory not found: $BACKEND_DIR"
+    exit 1
+fi
+
+cd "$BACKEND_DIR"
+
+# Clean and reinstall
+rm -rf node_modules package-lock.json > /dev/null 2>&1 || true
+npm install > /dev/null 2>&1
+
+if [ -d "node_modules" ]; then
+    print_success "Backend dependencies installed"
+else
+    print_error "Failed to install backend dependencies"
+    exit 1
+fi
+
+# ============================================================================
+# STEP 6: INSTALL FRONTEND DEPENDENCIES
+# ============================================================================
+print_step "Step 6/10: Installing frontend dependencies..."
+
+if [ ! -d "$FRONTEND_DIR" ]; then
+    print_error "Frontend directory not found: $FRONTEND_DIR"
+    exit 1
+fi
+
+cd "$FRONTEND_DIR"
+
+# Clean and reinstall
+rm -rf node_modules package-lock.json > /dev/null 2>&1 || true
+npm install > /dev/null 2>&1
+
+if [ -d "node_modules" ]; then
+    print_success "Frontend dependencies installed"
+else
+    print_error "Failed to install frontend dependencies"
+    exit 1
+fi
+
+# ============================================================================
+# STEP 7: STOP ANY EXISTING SERVICES
+# ============================================================================
+print_step "Step 7/10: Cleaning up any existing services..."
+
+pkill -f "node server.js" 2>/dev/null || true
+pkill -f "npm run dev" 2>/dev/null || true
+sleep 2
+
+print_success "Old services stopped"
+
+# ============================================================================
+# STEP 8: START BACKEND SERVER
+# ============================================================================
+print_step "Step 8/10: Starting backend server..."
+
+cd "$BACKEND_DIR"
+
+# Remove old logs
+rm -f backend.log
+
+# Start backend
+nohup node server.js > backend.log 2>&1 &
+BACKEND_PID=$!
+
+# Wait and verify
+sleep 3
+if ps -p $BACKEND_PID > /dev/null 2>&1; then
+    print_success "Backend server started (PID: $BACKEND_PID)"
+else
+    print_error "Backend server failed to start"
+    echo "Backend log:"
+    cat backend.log
+    exit 1
+fi
+
+# ============================================================================
+# STEP 9: START FRONTEND SERVER
+# ============================================================================
+print_step "Step 9/10: Starting frontend server..."
+
+cd "$FRONTEND_DIR"
+
+# Remove old logs
+rm -f frontend.log
+
+# Start frontend
+nohup npm run dev > frontend.log 2>&1 &
+FRONTEND_PID=$!
+
+# Wait and verify
+sleep 5
+if ps -p $FRONTEND_PID > /dev/null 2>&1; then
+    print_success "Frontend server started (PID: $FRONTEND_PID)"
+else
+    print_error "Frontend server failed to start"
+    echo "Frontend log:"
+    cat frontend.log
+    exit 1
+fi
+
+# ============================================================================
+# STEP 10: FINAL VERIFICATION
+# ============================================================================
+print_step "Step 10/10: Verifying all services..."
+
+echo ""
+SERVICES_RUNNING=0
+
+# Check Asterisk
+if systemctl is-active --quiet asterisk 2>/dev/null; then
+    print_success "Asterisk is running"
+    SERVICES_RUNNING=$((SERVICES_RUNNING + 1))
+else
+    print_error "Asterisk is NOT running"
+fi
+
+# Check PostgreSQL
+if systemctl is-active --quiet postgresql 2>/dev/null; then
+    print_success "PostgreSQL is running"
+    SERVICES_RUNNING=$((SERVICES_RUNNING + 1))
+else
+    print_error "PostgreSQL is NOT running"
+fi
+
+# Check Backend
+if ps -p $BACKEND_PID > /dev/null 2>&1; then
+    print_success "Backend API is running (PID: $BACKEND_PID)"
+    SERVICES_RUNNING=$((SERVICES_RUNNING + 1))
+else
+    print_error "Backend API is NOT running"
+fi
+
+# Check Frontend
+if ps -p $FRONTEND_PID > /dev/null 2>&1; then
+    print_success "Frontend is running (PID: $FRONTEND_PID)"
+    SERVICES_RUNNING=$((SERVICES_RUNNING + 1))
+else
+    print_error "Frontend is NOT running"
+fi
+
+echo ""
+
+if [ $SERVICES_RUNNING -eq 4 ]; then
+    print_header "INSTALLATION COMPLETE - ALL SERVICES RUNNING!"
+else
+    print_error "Some services failed to start. Check logs above."
+    exit 1
+fi
+
+# ============================================================================
+# DISPLAY SUMMARY
+# ============================================================================
+
+echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  ✓ ASTERISK PBX + WEB GUI FULLY INSTALLED${NC}"
+echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+echo ""
+
+echo "ACCESS INFORMATION:"
+echo "────────────────────────────────────────────────────────"
+echo -e "${CYAN}Web Interface:${NC}   http://localhost:5173"
+echo -e "${CYAN}Backend API:${NC}      http://localhost:3000"
+echo -e "${CYAN}Asterisk CLI:${NC}     asterisk -r"
+echo ""
+
+echo "LOGIN CREDENTIALS:"
+echo "────────────────────────────────────────────────────────"
+echo -e "${CYAN}Username:${NC}   admin"
+echo -e "${CYAN}Password:${NC}   admin123"
+echo ""
+
+echo "DATABASE CREDENTIALS:"
+echo "────────────────────────────────────────────────────────"
+echo -e "${CYAN}Database:${NC}   ari_api"
+echo -e "${CYAN}User:${NC}       ari_user"
+echo -e "${CYAN}Password:${NC}   change_me"
+echo ""
+
+echo "RUNNING SERVICES:"
+echo "────────────────────────────────────────────────────────"
+echo -e "${GREEN}✓ Asterisk PBX${NC}        (systemd service)"
+echo -e "${GREEN}✓ PostgreSQL Database${NC}  (systemd service)"
+echo -e "${GREEN}✓ Backend API${NC}         (PID: $BACKEND_PID)"
+echo -e "${GREEN}✓ Frontend Web UI${NC}     (PID: $FRONTEND_PID)"
+echo ""
+
+echo "LOG FILES:"
+echo "────────────────────────────────────────────────────────"
+echo "Backend:  $BACKEND_DIR/backend.log"
+echo "Frontend: $FRONTEND_DIR/frontend.log"
+echo "Asterisk: journalctl -u asterisk -f"
+echo ""
+
+echo "USEFUL COMMANDS:"
+echo "────────────────────────────────────────────────────────"
+echo "# View backend logs"
+echo "tail -f $BACKEND_DIR/backend.log"
+echo ""
+echo "# View frontend logs"
+echo "tail -f $FRONTEND_DIR/frontend.log"
+echo ""
+echo "# View Asterisk logs"
+echo "journalctl -u asterisk -f"
+echo ""
+echo "# Restart Asterisk"
+echo "sudo systemctl restart asterisk"
+echo ""
+echo "# Restart backend"
+echo "pkill -f 'node server.js'"
+echo "cd $BACKEND_DIR && nohup node server.js > backend.log 2>&1 &"
+echo ""
+echo "# Restart frontend"
+echo "pkill -f 'npm run dev'"
+echo "cd $FRONTEND_DIR && nohup npm run dev > frontend.log 2>&1 &"
+echo ""
+echo "# Access Asterisk CLI"
+echo "asterisk -r"
+echo ""
+
+echo "IMPORTANT SECURITY NOTE:"
+echo "────────────────────────────────────────────────────────"
+echo "⚠️  Change all default passwords immediately:"
+echo "  1. Web UI: Settings → User Management"
+echo "  2. Database: sudo -u postgres psql"
+echo "     ALTER USER ari_user WITH PASSWORD 'new_password';"
+echo ""
+
+print_header "READY TO USE!"
+echo "Open your browser and go to: http://localhost:5173"
+echo "Login with admin / admin123"
+echo ""
