@@ -2591,40 +2591,56 @@ async function generatePJSIPConfigForTrunk(trunk, deleteTrunkName = null) {
     
     // Add new trunk config if creating
     if (trunk) {
+      const username = trunk.username || trunk.trunk_name;
+      const password = trunk.password || '';
+      const server = trunk.server;
+      const port = trunk.port || 5060;
+      const context = trunk.context || 'default';
+      const codecs = trunk.codecs || 'ulaw,alaw';
+      
+      // Properly formatted PJSIP trunk configuration
       const trunkConfig = `
 ; === TRUNK: ${trunk.trunk_name} ===
-[${trunk.trunk_name}]
+[${trunk.trunk_name}-transport]
+type=transport
+protocol=udp
+bind=0.0.0.0:5061
+
+[${trunk.trunk_name}-registration]
 type=registration
-transport=transport-udp
-outbound_auth=${trunk.trunk_name}-auth
-server_uri=sip:${trunk.server}:${trunk.port || 5060}
-client_uri=sip:${trunk.username || trunk.trunk_name}@${trunk.server}:${trunk.port || 5060}
+transport=${trunk.trunk_name}-transport
+server_uri=sip:${server}:${port}
+client_uri=sip:${username}@${server}:${port}
+contact_uri=sip:${username}@${server}
 retry_interval=60
-${trunk.registration_enabled ? '' : ';'}
+expiration=3600
+auth=${trunk.trunk_name}-auth
 
 [${trunk.trunk_name}-auth]
 type=auth
 auth_type=userpass
-username=${trunk.username || trunk.trunk_name}
-password=${trunk.password || ''}
+username=${username}
+password=${password}
 
 [${trunk.trunk_name}-aor]
 type=aor
-contact=sip:${trunk.server}:${trunk.port || 5060}
+max_contacts=10
+contact=sip:${server}:${port}
 
 [${trunk.trunk_name}-endpoint]
 type=endpoint
-context=${trunk.context || 'default'}
+context=${context}
 disallow=all
-allow=${trunk.codecs || 'ulaw,alaw'}
+allow=${codecs}
 outbound_auth=${trunk.trunk_name}-auth
 aors=${trunk.trunk_name}-aor
-from_user=${trunk.username || trunk.trunk_name}
+from_user=${username}
+from_domain=${server}
 
 [${trunk.trunk_name}-identify]
 type=identify
 endpoint=${trunk.trunk_name}-endpoint
-match=${trunk.server}
+match=${server}
 ; === END TRUNK: ${trunk.trunk_name} ===
 `;
       
@@ -2634,12 +2650,15 @@ match=${trunk.server}
     // Write back to file
     try {
       fs.writeFileSync(PJSIP_CONF, config, 'utf8');
-      console.log(`✅ Updated ${PJSIP_CONF}`);
+      console.log(`✅ Updated ${PJSIP_CONF} for trunk`);
+      return true;
     } catch (e) {
       console.error('❌ Failed to write pjsip.conf:', e.message);
+      return false;
     }
   } catch (error) {
     console.error('Error generating PJSIP config:', error);
+    return false;
   }
 }
 
