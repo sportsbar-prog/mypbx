@@ -24,7 +24,7 @@ export default function Endpoints() {
   const fetchEndpoints = async () => {
     try {
       const response = await api.getEndpoints();
-      setEndpoints(response.data);
+      setEndpoints(response.data.endpoints || []);
     } catch (error) {
       console.error('Error fetching endpoints:', error);
       toast.error('Failed to fetch endpoints');

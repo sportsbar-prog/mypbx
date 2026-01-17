@@ -42,7 +42,7 @@ export default function Channels() {
   const fetchChannels = async () => {
     try {
       const response = await api.getChannels();
-      setChannels(response.data);
+      setChannels(response.data.channels || []);
     } catch (error) {
       console.error('Error fetching channels:', error);
       toast.error('Failed to fetch channels');
