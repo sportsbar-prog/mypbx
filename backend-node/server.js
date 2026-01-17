@@ -2756,11 +2756,23 @@ async function writeAsteriskConfig(filename, content) {
 // Reload Asterisk configuration
 async function reloadAsteriskConfig(module = 'all') {
   return new Promise((resolve) => {
-    const cmd = module === 'all' 
-      ? 'asterisk -rx "core reload"' 
-      : `asterisk -rx "${module} reload"`;
+    let cmd;
+    if (module === 'all') {
+      cmd = 'asterisk -rx "core reload"';
+    } else if (module === 'pjsip') {
+      cmd = 'asterisk -rx "pjsip reload"';
+    } else if (module === 'dialplan') {
+      cmd = 'asterisk -rx "dialplan reload"';
+    } else if (module === 'module') {
+      cmd = 'asterisk -rx "module reload"';
+    } else {
+      cmd = `asterisk -rx "${module} reload"`;
+    }
+    
     exec(cmd, (error, stdout, stderr) => {
       if (error) {
+        // Log the actual error for debugging
+        console.error('Reload error:', { error: error.message, stderr, stdout });
         resolve({ success: false, error: stderr || error.message });
       } else {
         resolve({ success: true, output: stdout });
