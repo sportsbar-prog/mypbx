@@ -2506,27 +2506,138 @@ app.post('/api/providers/:provider/render', (req, res) => {
   res.json({ success: true, rendered });
 });
 
-// Trunk CRUD (in-memory for now)
-app.get('/api/trunks', (req, res) => {
-  res.json({ success: true, trunks, stats: trunkStats, next: getNextTrunkRoundRobin() });
+// Trunk CRUD - Now with database persistence
+app.get('/api/trunks', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT * FROM sip_trunks ORDER BY created_at DESC'
+    );
+    res.json({ success: true, trunks: result.rows });
+  } catch (error) {
+    console.error('Error fetching trunks:', error);
+    res.json({ success: true, trunks: [] });
+  }
 });
 
-app.post('/api/trunks', (req, res) => {
-  const { trunk_name, provider, config } = req.body || {};
-  if (!trunk_name) return res.status(400).json({ success: false, error: 'trunk_name required' });
-  const existing = trunks.find(t => t.trunk_name === trunk_name);
-  if (existing) return res.status(400).json({ success: false, error: 'Trunk already exists' });
-  const entry = { trunk_name, provider: provider || 'custom', config: config || {}, created_at: new Date().toISOString() };
-  trunks.push(entry);
-  res.json({ success: true, trunk: entry });
+app.post('/api/trunks', authenticateAdmin, async (req, res) => {
+  const { trunk_name, provider, username, password, server, port, context, codecs, registration_enabled } = req.body || {};
+  
+  if (!trunk_name || !server) {
+    return res.status(400).json({ success: false, error: 'trunk_name and server are required' });
+  }
+  
+  try {
+    // Insert into database
+    const result = await db.query(
+      `INSERT INTO sip_trunks (trunk_name, provider, username, password, server, port, context, codecs, registration_enabled) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+       RETURNING *`,
+      [trunk_name, provider || 'custom', username, password, server, port || 5060, context || 'default', codecs || 'ulaw,alaw', registration_enabled !== false]
+    );
+    
+    // Generate PJSIP config
+    const trunk = result.rows[0];
+    await generatePJSIPConfigForTrunk(trunk);
+    
+    res.json({ success: true, trunk: trunk, message: 'Trunk created. Reload Asterisk to apply changes.' });
+  } catch (error) {
+    console.error('Error creating trunk:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
-app.delete('/api/trunks/:trunkName', (req, res) => {
-  const before = trunks.length;
-  trunks = trunks.filter(t => t.trunk_name !== req.params.trunkName);
-  delete trunkStats[req.params.trunkName];
-  res.json({ success: true, removed: before !== trunks.length });
+app.delete('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await db.query(
+      'DELETE FROM sip_trunks WHERE trunk_name = $1 RETURNING *',
+      [req.params.trunkName]
+    );
+    
+    if (result.rows.length > 0) {
+      await generatePJSIPConfigForTrunk(null, req.params.trunkName);
+      res.json({ success: true, removed: true, message: 'Trunk deleted. Reload Asterisk to apply changes.' });
+    } else {
+      res.json({ success: false, removed: false, error: 'Trunk not found' });
+    }
+  } catch (error) {
+    console.error('Error deleting trunk:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
+
+// Helper function to generate PJSIP config
+async function generatePJSIPConfigForTrunk(trunk, deleteTrunkName = null) {
+  try {
+    const PJSIP_CONF = '/etc/asterisk/pjsip.conf';
+    
+    // Read current config
+    let config = '';
+    try {
+      config = fs.readFileSync(PJSIP_CONF, 'utf8');
+    } catch (e) {
+      console.warn('Could not read pjsip.conf:', e.message);
+      return;
+    }
+    
+    // Remove old trunk config if deleting
+    if (deleteTrunkName) {
+      const regex = new RegExp(`; === TRUNK: ${deleteTrunkName} ===[\\s\\S]*?; === END TRUNK: ${deleteTrunkName} ===\\n`, 'g');
+      config = config.replace(regex, '');
+    }
+    
+    // Add new trunk config if creating
+    if (trunk) {
+      const trunkConfig = `
+; === TRUNK: ${trunk.trunk_name} ===
+[${trunk.trunk_name}]
+type=registration
+transport=transport-udp
+outbound_auth=${trunk.trunk_name}-auth
+server_uri=sip:${trunk.server}:${trunk.port || 5060}
+client_uri=sip:${trunk.username || trunk.trunk_name}@${trunk.server}:${trunk.port || 5060}
+retry_interval=60
+${trunk.registration_enabled ? '' : ';'}
+
+[${trunk.trunk_name}-auth]
+type=auth
+auth_type=userpass
+username=${trunk.username || trunk.trunk_name}
+password=${trunk.password || ''}
+
+[${trunk.trunk_name}-aor]
+type=aor
+contact=sip:${trunk.server}:${trunk.port || 5060}
+
+[${trunk.trunk_name}-endpoint]
+type=endpoint
+context=${trunk.context || 'default'}
+disallow=all
+allow=${trunk.codecs || 'ulaw,alaw'}
+outbound_auth=${trunk.trunk_name}-auth
+aors=${trunk.trunk_name}-aor
+from_user=${trunk.username || trunk.trunk_name}
+
+[${trunk.trunk_name}-identify]
+type=identify
+endpoint=${trunk.trunk_name}-endpoint
+match=${trunk.server}
+; === END TRUNK: ${trunk.trunk_name} ===
+`;
+      
+      config += trunkConfig;
+    }
+    
+    // Write back to file
+    try {
+      fs.writeFileSync(PJSIP_CONF, config, 'utf8');
+      console.log(`✅ Updated ${PJSIP_CONF}`);
+    } catch (e) {
+      console.error('❌ Failed to write pjsip.conf:', e.message);
+    }
+  } catch (error) {
+    console.error('Error generating PJSIP config:', error);
+  }
+}
 
 // System settings (memory)
 app.get('/api/settings', (req, res) => {
