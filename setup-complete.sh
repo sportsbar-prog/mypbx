@@ -187,70 +187,150 @@ fi
 # ============================================================================
 print_step "Downloading Asterisk source..."
 ASTERISK_VERSION="18.23.0"
-ASTERISK_URL="https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz"
+
+# Try multiple download sources
+ASTERISK_URLS=(
+    "https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz"
+    "https://github.com/asterisk/asterisk/archive/refs/tags/${ASTERISK_VERSION}.tar.gz"
+)
+
 ASTERISK_BUILD_DIR="/tmp/asterisk-${ASTERISK_VERSION}"
+DOWNLOAD_SUCCESS=0
 
 if [ ! -d "$ASTERISK_BUILD_DIR" ]; then
     mkdir -p /tmp/asterisk-build
     cd /tmp/asterisk-build
     
-    if ! wget -q "$ASTERISK_URL" -O asterisk.tar.gz 2>/dev/null; then
-        print_warning "wget failed, trying curl..."
-        if ! curl -s -o asterisk.tar.gz "$ASTERISK_URL" 2>/dev/null; then
-            print_error "Failed to download Asterisk with both wget and curl"
-            exit 1
+    for ASTERISK_URL in "${ASTERISK_URLS[@]}"; do
+        print_step "Trying download from: $ASTERISK_URL"
+        
+        # Try with curl first (usually more reliable)
+        if curl -L --max-time 60 -o asterisk.tar.gz "$ASTERISK_URL" 2>/dev/null; then
+            if tar tzf asterisk.tar.gz > /dev/null 2>&1; then
+                DOWNLOAD_SUCCESS=1
+                print_success "Downloaded successfully with curl"
+                break
+            fi
+        fi
+        
+        # Try with wget if curl fails
+        if [ $DOWNLOAD_SUCCESS -eq 0 ]; then
+            if wget -q --timeout=60 "$ASTERISK_URL" -O asterisk.tar.gz 2>/dev/null; then
+                if tar tzf asterisk.tar.gz > /dev/null 2>&1; then
+                    DOWNLOAD_SUCCESS=1
+                    print_success "Downloaded successfully with wget"
+                    break
+                fi
+            fi
+        fi
+    done
+    
+    if [ $DOWNLOAD_SUCCESS -eq 0 ]; then
+        print_error "Failed to download Asterisk from all sources"
+        print_warning "Network connectivity may be limited. Options:"
+        echo "  1. Run this script with internet access"
+        echo "  2. Download manually: https://downloads.asterisk.org/pub/telephony/asterisk/releases/"
+        echo "  3. Install from system packages: sudo apt-get install asterisk"
+        echo ""
+        read -p "Install Asterisk from system packages instead? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_step "Installing Asterisk from system packages..."
+            echo "$SUDO_PASS" | sudo -S apt-get install -y asterisk asterisk-dev > /dev/null 2>&1
+            if command -v asterisk &> /dev/null; then
+                print_success "Asterisk installed from system packages"
+                ASTERISK_VERSION=$(asterisk -V | grep -oP '\d+\.\d+\.\d+' | head -1)
+                print_success "Asterisk version: $ASTERISK_VERSION"
+                DOWNLOAD_SUCCESS=2
+            else
+                print_error "Could not install Asterisk - skipping"
+            fi
+        else
+            print_warning "Skipping Asterisk installation"
+            DOWNLOAD_SUCCESS=2
+        fi
+    else
+        # Extract the tarball
+        tar xzf asterisk.tar.gz > /dev/null 2>&1
+        
+        # Find the extracted directory
+        if [ -d "asterisk-${ASTERISK_VERSION}" ]; then
+            ASTERISK_BUILD_DIR="$(pwd)/asterisk-${ASTERISK_VERSION}"
+        elif [ -d "asterisk-asterisk-${ASTERISK_VERSION}" ]; then
+            ASTERISK_BUILD_DIR="$(pwd)/asterisk-asterisk-${ASTERISK_VERSION}"
+        else
+            # Get the first directory that was extracted
+            ASTERISK_BUILD_DIR="$(ls -d */ | head -1 | sed 's:/$::')"
+            ASTERISK_BUILD_DIR="$(pwd)/$ASTERISK_BUILD_DIR"
+        fi
+        
+        if [ ! -d "$ASTERISK_BUILD_DIR" ]; then
+            print_error "Asterisk source directory not found after extraction"
+            DOWNLOAD_SUCCESS=0
+        else
+            print_success "Asterisk source downloaded and extracted"
         fi
     fi
-    
-    tar xzf asterisk.tar.gz > /dev/null 2>&1
-    
-    # The tar extracts to asterisk-VERSION directory
-    if [ -d "asterisk-${ASTERISK_VERSION}" ]; then
-        ASTERISK_BUILD_DIR="$(pwd)/asterisk-${ASTERISK_VERSION}"
-    else
-        print_error "Asterisk source directory not found after extraction"
-        ls -la
+else
+    print_success "Asterisk source already downloaded"
+    DOWNLOAD_SUCCESS=1
+fi
+
+# Only continue with build if we successfully downloaded from source
+if [ $DOWNLOAD_SUCCESS -eq 1 ]; then
+    if [ ! -d "$ASTERISK_BUILD_DIR" ]; then
+        print_error "Asterisk build directory not accessible"
         exit 1
     fi
     
-    print_success "Asterisk source downloaded"
+    cd "$ASTERISK_BUILD_DIR"
+
+    print_step "Configuring Asterisk build..."
+    ./configure --prefix=/opt/asterisk \
+        --with-pgsql \
+        --with-ssl \
+        --with-srtp \
+        --with-jansson \
+        --with-json \
+        --enable-dev-mode \
+        > /dev/null 2>&1
+
+    print_success "Asterisk configured"
+
+    print_step "Building and installing Asterisk (this may take several minutes)..."
+    make -j$(nproc) > /dev/null 2>&1
+    echo "$SUDO_PASS" | sudo -S make install > /dev/null 2>&1
+    echo "$SUDO_PASS" | sudo -S make install-logrotate > /dev/null 2>&1
+    echo "$SUDO_PASS" | sudo -S /opt/asterisk/sbin/asterisk -V > /dev/null 2>&1 && \
+        print_success "Asterisk installed: $(/opt/asterisk/sbin/asterisk -V)"
 else
-    print_success "Asterisk source already downloaded"
+    print_warning "Skipping Asterisk from source build"
 fi
-
-cd "$ASTERISK_BUILD_DIR"
-
-print_step "Configuring Asterisk build..."
-./configure --prefix=/opt/asterisk \
-    --with-pgsql \
-    --with-ssl \
-    --with-srtp \
-    --with-jansson \
-    --with-json \
-    --enable-dev-mode \
-    > /dev/null 2>&1
-
-print_success "Asterisk configured"
-
-print_step "Building and installing Asterisk (this may take several minutes)..."
-make -j$(nproc) > /dev/null 2>&1
-echo "$SUDO_PASS" | sudo -S make install > /dev/null 2>&1
-echo "$SUDO_PASS" | sudo -S make install-logrotate > /dev/null 2>&1
-echo "$SUDO_PASS" | sudo -S /opt/asterisk/sbin/asterisk -V > /dev/null 2>&1 && \
-    print_success "Asterisk installed: $(/opt/asterisk/sbin/asterisk -V)"
 
 # ============================================================================
 # STEP 7: Install Asterisk Sample Configuration
 # ============================================================================
 print_step "Installing Asterisk configuration files..."
-echo "$SUDO_PASS" | sudo -S mkdir -p /opt/asterisk/etc/asterisk
-if [ ! -f /opt/asterisk/etc/asterisk/asterisk.conf ]; then
-    echo "$SUDO_PASS" | sudo -S cp -r "$ASTERISK_BUILD_DIR/configs/samples/asterisk.conf.sample" /opt/asterisk/etc/asterisk/asterisk.conf 2>/dev/null || true
-    echo "$SUDO_PASS" | sudo -S cp -r "$ASTERISK_BUILD_DIR/configs/samples/"*.conf.sample /opt/asterisk/etc/asterisk/ 2>/dev/null || true
+if command -v asterisk &> /dev/null; then
+    ASTERISK_CONF_DIR=$(/opt/asterisk/sbin/asterisk -r -x "core show settings" 2>/dev/null | grep "Asterisk Executable" | awk '{print $NF}' | xargs dirname 2>/dev/null || echo "/etc/asterisk")
+    [ ! -d "$ASTERISK_CONF_DIR" ] && ASTERISK_CONF_DIR="/etc/asterisk"
+    
+    echo "$SUDO_PASS" | sudo -S mkdir -p "$ASTERISK_CONF_DIR"
+    
+    # Copy sample configs if available
+    if [ -d "$ASTERISK_BUILD_DIR/configs/samples" ]; then
+        echo "$SUDO_PASS" | sudo -S cp -r "$ASTERISK_BUILD_DIR/configs/samples/"*.conf.sample "$ASTERISK_CONF_DIR/" 2>/dev/null || true
+    fi
+    
+    print_success "Asterisk configuration directory: $ASTERISK_CONF_DIR"
+else
+    print_warning "Asterisk not found, skipping configuration files"
+    ASTERISK_CONF_DIR="/etc/asterisk"
 fi
 
 # Create basic extensions configuration
-echo "$SUDO_PASS" | sudo -S tee /opt/asterisk/etc/asterisk/extensions.conf > /dev/null << 'EOF'
+echo "$SUDO_PASS" | sudo -S mkdir -p "$ASTERISK_CONF_DIR"
+echo "$SUDO_PASS" | sudo -S tee "$ASTERISK_CONF_DIR/extensions.conf" > /dev/null << 'EOF'
 [general]
 static=yes
 writeprotect=no
