@@ -3205,22 +3205,26 @@ app.post('/api/asterisk/dialplan/apply', authenticateAdmin, async (req, res) => 
 // In-memory SIP users storage
 let sipUsers = [];
 
-// Parse SIP users from pjsip.conf
-// Supports both our marked blocks (; === SIP USER: ...) and generic endpoint/auth/aor sections
+// Parse SIP users from pjsip.conf (handles duplicate section names by type)
 function parsePjsipUsers(content) {
-  const users = [];
-  const sections = {};
+  const sectionsByName = {};
   let current = null;
 
-  // First pass: build section map
+  const pushSection = () => {
+    if (!current) return;
+    const { name, type, data } = current;
+    if (!sectionsByName[name]) sectionsByName[name] = [];
+    sectionsByName[name].push({ type, data });
+  };
+
   for (const raw of content.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith(';')) continue;
 
     const sectionMatch = line.match(/^\[([^\]]+)\]/);
     if (sectionMatch) {
-      current = sectionMatch[1];
-      sections[current] = sections[current] || {};
+      pushSection();
+      current = { name: sectionMatch[1], type: 'unknown', data: {} };
       continue;
     }
 
@@ -3228,38 +3232,47 @@ function parsePjsipUsers(content) {
     if (kv && current) {
       const key = kv[1].trim();
       const val = kv[2].trim();
-      sections[current][key] = val;
+      if (key === 'type') current.type = val.toLowerCase();
+      current.data[key] = val;
     }
   }
+  pushSection();
 
-  // Helper to get boolean yes/no
   const toBool = (v) => (v === 'yes' || v === 'true');
 
-  // Determine user blocks
-  for (const name of Object.keys(sections)) {
-    const sec = sections[name];
-    if ((sec.type || '').toLowerCase() !== 'endpoint') continue;
+  const users = [];
+  for (const name of Object.keys(sectionsByName)) {
+    const entries = sectionsByName[name];
+    const endpoint = entries.find(e => e.type === 'endpoint');
+    if (!endpoint) continue;
 
-    const authName = sec.auth || `${name}-auth`;
-    const aorName = (sec.aors || sec.aor || name).split(',')[0].trim();
+    // Skip trunks: if there is a registration section with the same name
+    const hasRegistration = entries.some(e => e.type === 'registration');
+    if (hasRegistration) continue;
 
-    const auth = sections[authName] || {};
-    const aor = sections[aorName] || {};
+    const authName = endpoint.data.auth || `${name}-auth`;
+    const aorNameRaw = endpoint.data.aors || endpoint.data.aor || `${name}-aor`;
+    const aorName = aorNameRaw.split(',')[0].trim();
+
+    const authEntries = sectionsByName[authName] || [];
+    const aorEntries = sectionsByName[aorName] || sectionsByName[name] || [];
+    const auth = authEntries.find(e => e.type === 'auth')?.data || {};
+    const aor = aorEntries.find(e => e.type === 'aor')?.data || {};
 
     users.push({
       name,
       username: auth.username || name,
       password: auth.password || '',
-      context: sec.context || 'default',
-      codecs: sec.allow || 'ulaw,alaw,g722',
-      transport: sec.transport || 'transport-udp',
-      callerid: sec.callerid || `"${name}" <${name}>`,
+      context: endpoint.data.context || 'default',
+      codecs: endpoint.data.allow || 'ulaw,alaw,g722',
+      transport: endpoint.data.transport || 'transport-udp',
+      callerid: endpoint.data.callerid || `"${name}" <${name}>`,
       maxContacts: parseInt(aor.max_contacts || '5') || 5,
       qualifyFrequency: aor.qualify_frequency ? parseInt(aor.qualify_frequency) : undefined,
-      directMedia: sec.direct_media ? toBool(sec.direct_media) : undefined,
-      rtp_symmetric: sec.rtp_symmetric ? toBool(sec.rtp_symmetric) : undefined,
-      force_rport: sec.force_rport ? toBool(sec.force_rport) : undefined,
-      rewrite_contact: sec.rewrite_contact ? toBool(sec.rewrite_contact) : undefined,
+      directMedia: endpoint.data.direct_media ? toBool(endpoint.data.direct_media) : undefined,
+      rtp_symmetric: endpoint.data.rtp_symmetric ? toBool(endpoint.data.rtp_symmetric) : undefined,
+      force_rport: endpoint.data.force_rport ? toBool(endpoint.data.force_rport) : undefined,
+      rewrite_contact: endpoint.data.rewrite_contact ? toBool(endpoint.data.rewrite_contact) : undefined,
     });
   }
 
@@ -3452,34 +3465,35 @@ app.post('/api/asterisk/sip-users/apply', authenticateAdmin, async (req, res) =>
       const codecs = user.codecs || 'ulaw,alaw,g722';
       const callerid = user.callerid || `"${name}" <${name}>`;
       
+      const aorName = `${name}-aor`;
       return `; === SIP USER: ${name} ===
-[${name}](endpoint-template)
-type=endpoint
-context=${context}
-disallow=all
-allow=${codecs}
-auth=${name}-auth
-aors=${name}
-callerid=${callerid}
-transport=${transport}
-direct_media=no
-rtp_symmetric=yes
-force_rport=yes
-rewrite_contact=yes
+    [${name}](endpoint-template)
+    type=endpoint
+    context=${context}
+    disallow=all
+    allow=${codecs}
+    auth=${name}-auth
+    aors=${aorName}
+    callerid=${callerid}
+    transport=${transport}
+    direct_media=no
+    rtp_symmetric=yes
+    force_rport=yes
+    rewrite_contact=yes
 
-[${name}-auth]
-type=auth
-auth_type=userpass
-username=${name}
-password=${password}
+    [${name}-auth]
+    type=auth
+    auth_type=userpass
+    username=${name}
+    password=${password}
 
-[${name}]
-type=aor
-max_contacts=5
-remove_existing=yes
+    [${aorName}]
+    type=aor
+    max_contacts=5
+    remove_existing=yes
 
-; === END SIP USER: ${name} ===
-`;
+    ; === END SIP USER: ${name} ===
+    `;
     }).join('\n');
     
     // Append user configs to pjsip.conf
