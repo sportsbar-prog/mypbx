@@ -2806,6 +2806,10 @@ async function reloadAsteriskConfig(module = 'all') {
       console.log(`[RELOAD-RESPONSE]`, { error: error ? error.code : 'none', stdout, stderr });
 
       const combinedOut = [stdout, stderr].filter(Boolean).join('\n');
+      const exitCode = typeof (error && error.code) === 'number' ? error.code : null;
+      const errorLower = (combinedOut || '').toLowerCase();
+      const unableToConnect = errorLower.includes('unable to connect to remote') || errorLower.includes('asterisk.ctl');
+      const notFound = exitCode === 127;
       
       // Success if:
       // 1. No error and has output
@@ -2819,24 +2823,28 @@ async function reloadAsteriskConfig(module = 'all') {
       if (noError && hasOutput) {
         // Clean successful execution
         console.log(`[RELOAD-SUCCESS] Clean execution with output`);
-        resolve({ success: true, output: combinedOut || stdout });
+        resolve({ success: true, output: combinedOut || stdout, command: cmd, exitCode });
       } else if (hasOutput || hasStderr || hasSuccessMessage) {
         // Has output indicating possible success despite exit code
         console.log(`[RELOAD-SUCCESS] Output indicates success despite error code`);
-        resolve({ success: true, output: combinedOut || stdout || stderr });
+        resolve({ success: true, output: combinedOut || stdout || stderr, command: cmd, exitCode });
       } else if (error && error.killed) {
         // Timeout occurred
         console.error(`[RELOAD-TIMEOUT] Command timeout for ${module}`);
-        resolve({ success: false, error: `Reload timeout - command took too long`, output: combinedOut });
-      } else if (error && error.code === 127) {
+        resolve({ success: false, error: `Reload timeout - command took too long`, output: combinedOut, command: cmd, exitCode });
+      } else if (notFound) {
         // Command not found
         console.error(`[RELOAD-NOTFOUND] asterisk command not found`);
-        resolve({ success: false, error: `asterisk command not found in system PATH`, output: combinedOut });
+        resolve({ success: false, error: `asterisk command not found in system PATH`, output: combinedOut, command: cmd, exitCode });
+      } else if (unableToConnect) {
+        const friendly = 'Unable to connect to Asterisk (is it running, and do you have permission to access asterisk.ctl?)';
+        console.error(`[RELOAD-CONNECT] ${friendly}`);
+        resolve({ success: false, error: friendly, output: combinedOut, command: cmd, exitCode });
       } else {
         // Generic error
         const errorMsg = stderr || (error ? error.message : 'Unknown error');
         console.error(`[RELOAD-ERROR]`, errorMsg);
-        resolve({ success: false, error: errorMsg, output: combinedOut });
+        resolve({ success: false, error: errorMsg, output: combinedOut, command: cmd, exitCode });
       }
     });
   });
@@ -3397,6 +3405,8 @@ app.post('/api/asterisk/reload', authenticateAdmin, async (req, res) => {
         success: true, 
         message: `${module} reload completed`,
         output: result.output,
+        command: result.command,
+        exitCode: result.exitCode,
         timestamp: new Date().toISOString()
       });
     } else {
@@ -3405,6 +3415,8 @@ app.post('/api/asterisk/reload', authenticateAdmin, async (req, res) => {
         message: `${module} reload failed`,
         error: result.error,
         output: result.output,
+        command: result.command,
+        exitCode: result.exitCode,
         timestamp: new Date().toISOString()
       });
     }
