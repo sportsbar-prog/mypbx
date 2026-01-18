@@ -1424,7 +1424,7 @@ app.get('/api/admin/analytics', authenticateAdmin, async (req, res) => {
 });
 
 // Get endpoints
-app.get('/api/endpoints', authenticateAdmin, async (req, res) => {
+app.get('/api/endpoints', async (req, res) => {
   try {
     if (!ariClient) {
       return res.status(503).json({ success: false, error: 'ARI not connected', endpoints: [] });
