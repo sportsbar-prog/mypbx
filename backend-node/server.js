@@ -1429,11 +1429,47 @@ app.get('/api/endpoints', async (req, res) => {
     if (!ariClient) {
       return res.status(503).json({ success: false, error: 'ARI not connected', endpoints: [] });
     }
-    const endpoints = await ariClient.endpoints.list();
-    res.json({ success: true, endpoints: endpoints || [] });
+    
+    // Debug: Try multiple ways to get endpoints
+    console.log('🔍 Fetching endpoints from ARI...');
+    
+    let endpoints = [];
+    
+    // Method 1: Direct ARI endpoints list
+    try {
+      endpoints = await ariClient.endpoints.list();
+      console.log(`📊 ARI endpoints.list() returned: ${endpoints ? endpoints.length : 0} items`);
+      if (endpoints && endpoints.length > 0) {
+        console.log('Sample endpoint:', JSON.stringify(endpoints[0], null, 2));
+      }
+    } catch (e) {
+      console.error('❌ ARI endpoints.list() error:', e.message);
+    }
+    
+    // Method 2: If empty, try PJSIP command
+    if (!endpoints || endpoints.length === 0) {
+      console.log('📋 Falling back to Asterisk CLI command...');
+      endpoints = await new Promise((resolve) => {
+        exec('asterisk -rx "pjsip show endpoints"', (err, stdout) => {
+          if (err) return resolve([]);
+          const lines = stdout.split('\n');
+          const eps = [];
+          for (const line of lines) {
+            if (line.includes('Endpoint:') && line.includes('State')) {
+              const match = line.match(/Endpoint:\s+([^\s]+)\s+/);
+              if (match) eps.push({ id: match[1], via: 'CLI' });
+            }
+          }
+          resolve(eps);
+        });
+      });
+      console.log(`📊 CLI fallback found: ${endpoints.length} endpoints`);
+    }
+    
+    res.json({ success: true, endpoints: endpoints || [], debug: 'ARI client' });
   } catch (error) {
     console.error('Endpoints error:', error.message);
-    res.json({ success: true, endpoints: [] });
+    res.json({ success: true, endpoints: [], debug: error.message });
   }
 });
 
