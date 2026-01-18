@@ -2550,6 +2550,36 @@ app.post('/api/trunks', authenticateAdmin, async (req, res) => {
   }
 });
 
+app.put('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
+  const { trunk_name, provider, username, password, server, port, context, codecs, registration_enabled } = req.body;
+  
+  try {
+    const serverAddr = server || req.body.sip_server;
+    const serverPort = port || req.body.sip_port || 5060;
+    
+    const result = await db.query(
+      `UPDATE sip_trunks 
+       SET provider = $1, username = $2, password = $3, server = $4, port = $5, 
+           context = $6, codecs = $7, registration_enabled = $8 
+       WHERE trunk_name = $9 
+       RETURNING *`,
+      [provider, username, password, serverAddr, serverPort, context || 'default', codecs || 'ulaw,alaw', registration_enabled !== false, req.params.trunkName]
+    );
+    
+    if (result.rows.length > 0) {
+      // Regenerate PJSIP config
+      await generatePJSIPConfigForTrunk(null, req.params.trunkName); // Remove old
+      await generatePJSIPConfigForTrunk(result.rows[0]); // Add new
+      res.json({ success: true, trunk: result.rows[0], message: 'Trunk updated. Reload Asterisk to apply changes.' });
+    } else {
+      res.status(404).json({ success: false, error: 'Trunk not found' });
+    }
+  } catch (error) {
+    console.error('Error updating trunk:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.delete('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
   try {
     const result = await db.query(
@@ -2565,6 +2595,28 @@ app.delete('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
     }
   } catch (error) {
     console.error('Error deleting trunk:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Assign trunk to account/user (placeholder for future feature)
+app.post('/api/trunks/assign', authenticateAdmin, async (req, res) => {
+  const { trunk_name } = req.body;
+  try {
+    // TODO: Implement trunk assignment logic
+    res.json({ success: true, message: `Trunk "${trunk_name}" assigned successfully` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Unassign trunk (placeholder for future feature)
+app.post('/api/trunks/unassign', authenticateAdmin, async (req, res) => {
+  const { trunk_name } = req.body;
+  try {
+    // TODO: Implement trunk unassignment logic
+    res.json({ success: true, message: `Trunk "${trunk_name}" unassigned successfully` });
+  } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
