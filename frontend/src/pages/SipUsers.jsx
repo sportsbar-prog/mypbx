@@ -57,7 +57,7 @@ function SipUsers() {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/api/asterisk/sip-users');
+      const res = await api.get('/asterisk/sip-users');
       if (res.data.success) {
         setUsers(res.data.users || []);
       } else {
@@ -76,8 +76,8 @@ function SipUsers() {
     const { mode, data } = dialog;
     try {
       const res = mode === 'add'
-        ? await api.post('/api/asterisk/sip-users', data)
-        : await api.put(`/api/asterisk/sip-users/${dialog.originalUsername}`, data);
+        ? await api.post('/asterisk/sip-users', data)
+        : await api.put(`/asterisk/sip-users/${dialog.originalUsername}`, data);
       
       if (res.data.success) {
         setSuccess(mode === 'add' ? 'SIP user created' : 'SIP user updated');
@@ -94,7 +94,7 @@ function SipUsers() {
   const handleDelete = async (username) => {
     if (!window.confirm(`Delete SIP user "${username}"?`)) return;
     try {
-      const res = await api.delete(`/api/asterisk/sip-users/${username}`);
+      const res = await api.delete(`/asterisk/sip-users/${username}`);
       if (res.data.success) {
         setSuccess('SIP user deleted');
         fetchUsers();
@@ -109,7 +109,7 @@ function SipUsers() {
   const handleApply = async () => {
     if (!window.confirm('Apply SIP users to Asterisk? This will write pjsip_users.conf')) return;
     try {
-      const res = await api.post('/api/asterisk/sip-users/apply', {});
+      const res = await api.post('/asterisk/sip-users/apply', {});
       if (res.data.success) {
         setSuccess('SIP users applied to Asterisk');
       } else {

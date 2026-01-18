@@ -30,7 +30,7 @@ export default function PJSIPConfig() {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/api/pjsip/config');
+      const response = await api.get('/pjsip/config');
 
       if (response.data.success) {
         setContent(response.data.content);
@@ -56,7 +56,7 @@ export default function PJSIPConfig() {
     setDialogOpen(false);
     setLoading(true);
     try {
-      const response = await api.put('/api/pjsip/config', { content });
+      const response = await api.put('/pjsip/config', { content });
 
       if (response.data.success) {
         setOriginalContent(content);

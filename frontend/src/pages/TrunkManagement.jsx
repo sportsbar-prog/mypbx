@@ -110,7 +110,7 @@ export default function TrunkManagement() {
   const loadTrunks = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/api/trunks');
+      const response = await api.get('/trunks');
 
       if (response.data.success) {
         setTrunks(response.data.trunks || []);
@@ -167,14 +167,14 @@ export default function TrunkManagement() {
       }
 
       if (editingTrunk) {
-        const response = await api.put(`/api/trunks/${editingTrunk.trunk_name}`, formData);
+        const response = await api.put(`/trunks/${editingTrunk.trunk_name}`, formData);
         if (response.data.success) {
           toast.success('Trunk updated successfully');
           loadTrunks();
           handleCloseDialog();
         }
       } else {
-        const response = await api.post('/api/trunks', formData);
+        const response = await api.post('/trunks', formData);
         if (response.data.success) {
           toast.success('Trunk created successfully');
           loadTrunks();
@@ -193,7 +193,7 @@ export default function TrunkManagement() {
     }
 
     try {
-      const response = await api.delete(`/api/trunks/${trunkName}`);
+      const response = await api.delete(`/trunks/${trunkName}`);
       if (response.data.success) {
         toast.success('Trunk deleted successfully');
         loadTrunks();
@@ -206,7 +206,7 @@ export default function TrunkManagement() {
 
   const handleAssign = async (trunkName) => {
     try {
-      const response = await api.post('/api/trunks/assign', { trunk_name: trunkName });
+      const response = await api.post('/trunks/assign', { trunk_name: trunkName });
       if (response.data.success) {
         toast.success(`Trunk "${trunkName}" assigned successfully`);
         loadTrunks();
@@ -219,7 +219,7 @@ export default function TrunkManagement() {
 
   const handleUnassign = async (trunkName) => {
     try {
-      const response = await api.post('/api/trunks/unassign', { trunk_name: trunkName });
+      const response = await api.post('/trunks/unassign', { trunk_name: trunkName });
       if (response.data.success) {
         toast.success(`Trunk "${trunkName}" unassigned successfully`);
         loadTrunks();
