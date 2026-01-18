@@ -76,6 +76,12 @@ const providerConfigs = {
   },
 };
 
+const getStatusColor = (status) => {
+  if (status === 'Registered') return 'success';
+  if (status === 'Rejected' || status === 'Unregistered' || status === 'Error') return 'error';
+  return 'warning';
+};
+
 export default function TrunkManagement() {
   const [trunks, setTrunks] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -276,64 +282,68 @@ export default function TrunkManagement() {
             </TableHead>
             <TableBody>
               {trunks && trunks.length > 0 ? (
-                trunks.map((trunk) => (
-                  <TableRow key={trunk.trunk_name}>
-                    <TableCell>{trunk.trunk_name}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={providerConfigs[trunk.provider]?.name || trunk.provider}
-                        style={{
-                          backgroundColor: getProviderColor(trunk.provider),
-                          color: 'white',
-                        }}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={trunk.status || 'Unknown'}
-                        color={trunk.status === 'Registered' ? 'success' : 'error'}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={trunk.isAssigned ? 'Active' : 'Inactive'}
-                        color={trunk.isAssigned ? 'success' : 'warning'}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button
+                trunks.map((trunk) => {
+                  const statusLabel = trunk.status || (trunk.registration_enabled === false ? 'Disabled' : 'Unknown');
+                  const isAssigned = trunk.isAssigned ?? trunk.is_active ?? false;
+                  return (
+                    <TableRow key={trunk.trunk_name}>
+                      <TableCell>{trunk.trunk_name}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={providerConfigs[trunk.provider]?.name || trunk.provider}
+                          style={{
+                            backgroundColor: getProviderColor(trunk.provider),
+                            color: 'white',
+                          }}
                           size="small"
-                          variant="outlined"
-                          startIcon={<EditIcon />}
-                          onClick={() => handleOpenDialog(trunk)}
-                        >
-                          Edit
-                        </Button>
-                        <Button
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={statusLabel}
+                          color={getStatusColor(statusLabel)}
                           size="small"
-                          variant={trunk.isAssigned ? 'outlined' : 'contained'}
-                          color={trunk.isAssigned ? 'error' : 'success'}
-                          onClick={() => (trunk.isAssigned ? handleUnassign(trunk.trunk_name) : handleAssign(trunk.trunk_name))}
-                        >
-                          {trunk.isAssigned ? 'Unassign' : 'Assign'}
-                        </Button>
-                        <Button
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={isAssigned ? 'Active' : 'Inactive'}
+                          color={isAssigned ? 'success' : 'warning'}
                           size="small"
-                          variant="outlined"
-                          color="error"
-                          startIcon={<DeleteIcon />}
-                          onClick={() => handleDelete(trunk.trunk_name)}
-                        >
-                          Delete
-                        </Button>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                ))
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<EditIcon />}
+                            onClick={() => handleOpenDialog(trunk)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="small"
+                            variant={isAssigned ? 'outlined' : 'contained'}
+                            color={isAssigned ? 'error' : 'success'}
+                            onClick={() => (isAssigned ? handleUnassign(trunk.trunk_name) : handleAssign(trunk.trunk_name))}
+                          >
+                            {isAssigned ? 'Unassign' : 'Assign'}
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            startIcon={<DeleteIcon />}
+                            onClick={() => handleDelete(trunk.trunk_name)}
+                          >
+                            Delete
+                          </Button>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               ) : (
                 <TableRow>
                   <TableCell colSpan="5" align="center">

@@ -85,6 +85,37 @@ let systemSettings = {
   ttsEngine: process.env.TTS_ENGINE || 'google'
 };
 
+async function refreshTrunkCache() {
+  try {
+    const result = await db.query('SELECT trunk_name, is_active FROM sip_trunks ORDER BY created_at DESC');
+    trunks = (result.rows || []).filter(t => t.is_active).map(t => t.trunk_name);
+    console.log(`🔄 Trunk cache refreshed (${trunks.length} active)`);
+  } catch (error) {
+    console.warn('⚠️  Failed to refresh trunk cache:', error.message);
+    trunks = [];
+  }
+}
+
+async function getRegistrationStatusMap() {
+  return new Promise((resolve) => {
+    exec('asterisk -rx "pjsip show registrations"', (err, stdout) => {
+      if (err || !stdout) return resolve({});
+      const statusMap = {};
+      const lines = stdout.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('<Registration')) continue;
+        const parts = trimmed.split(/\s+/).filter(Boolean);
+        if (parts.length >= 3) {
+          const regName = (parts[0].split('/')[0] || '').trim();
+          if (regName) statusMap[regName] = parts[2];
+        }
+      }
+      resolve(statusMap);
+    });
+  });
+}
+
 function renderTemplate(template, vars) {
   // Ensure we have actual newlines, not escaped ones
   let processedTemplate = template;
@@ -2546,7 +2577,13 @@ app.get('/api/trunks', authenticateAdmin, async (req, res) => {
     const result = await db.query(
       'SELECT * FROM sip_trunks ORDER BY created_at DESC'
     );
-    res.json({ success: true, trunks: result.rows });
+    const statusMap = await getRegistrationStatusMap();
+    const trunksWithStatus = (result.rows || []).map(row => ({
+      ...row,
+      isAssigned: row.is_active,
+      status: statusMap[row.trunk_name] || (row.registration_enabled === false ? 'Disabled' : 'Unknown')
+    }));
+    res.json({ success: true, trunks: trunksWithStatus });
   } catch (error) {
     console.error('Error fetching trunks:', error);
     res.json({ success: true, trunks: [] });
@@ -2616,10 +2653,11 @@ app.post('/api/trunks', authenticateAdmin, async (req, res) => {
     
     // Auto-reload PJSIP
     const reloadResult = await reloadAsteriskConfig('pjsip');
+    await refreshTrunkCache();
     
     res.json({ 
       success: true, 
-      trunk: trunk, 
+      trunk: { ...trunk, isAssigned: trunk.is_active, status: 'Unknown' }, 
       message: 'Trunk created and applied to Asterisk',
       reload: reloadResult
     });
@@ -2675,10 +2713,11 @@ app.put('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
     
     // Auto-reload
     const reloadResult = await reloadAsteriskConfig('pjsip');
+    await refreshTrunkCache();
     
     res.json({ 
       success: true, 
-      trunk: result.rows[0], 
+      trunk: { ...result.rows[0], isAssigned: result.rows[0].is_active, status: 'Unknown' }, 
       message: 'Trunk updated and applied to Asterisk',
       reload: reloadResult
     });
@@ -2700,6 +2739,7 @@ app.delete('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
       
       // Auto-reload
       const reloadResult = await reloadAsteriskConfig('pjsip');
+      await refreshTrunkCache();
       
       res.json({ 
         success: true, 
@@ -2720,8 +2760,27 @@ app.delete('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
 app.post('/api/trunks/assign', authenticateAdmin, async (req, res) => {
   const { trunk_name } = req.body;
   try {
-    // TODO: Implement trunk assignment logic
-    res.json({ success: true, message: `Trunk "${trunk_name}" assigned successfully` });
+    if (!trunk_name) {
+      return res.status(400).json({ success: false, error: 'trunk_name is required' });
+    }
+
+    const result = await db.query(
+      'UPDATE sip_trunks SET is_active = true WHERE trunk_name = $1 RETURNING *',
+      [trunk_name]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Trunk not found' });
+    }
+
+    await refreshTrunkCache();
+    const statusMap = await getRegistrationStatusMap();
+    const trunk = result.rows[0];
+    res.json({ 
+      success: true, 
+      trunk: { ...trunk, isAssigned: true, status: statusMap[trunk.trunk_name] || 'Unknown' },
+      message: `Trunk "${trunk_name}" assigned successfully`
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2731,8 +2790,27 @@ app.post('/api/trunks/assign', authenticateAdmin, async (req, res) => {
 app.post('/api/trunks/unassign', authenticateAdmin, async (req, res) => {
   const { trunk_name } = req.body;
   try {
-    // TODO: Implement trunk unassignment logic
-    res.json({ success: true, message: `Trunk "${trunk_name}" unassigned successfully` });
+    if (!trunk_name) {
+      return res.status(400).json({ success: false, error: 'trunk_name is required' });
+    }
+
+    const result = await db.query(
+      'UPDATE sip_trunks SET is_active = false WHERE trunk_name = $1 RETURNING *',
+      [trunk_name]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Trunk not found' });
+    }
+
+    await refreshTrunkCache();
+    const statusMap = await getRegistrationStatusMap();
+    const trunk = result.rows[0];
+    res.json({ 
+      success: true, 
+      trunk: { ...trunk, isAssigned: false, status: statusMap[trunk.trunk_name] || 'Unknown' },
+      message: `Trunk "${trunk_name}" unassigned successfully`
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -4219,6 +4297,9 @@ async function startServer() {
     console.log('🔗 Connecting to database...');
     await db.query('SELECT NOW()');
     console.log('✅ Database connected');
+
+    // Cache active trunks for originate endpoints
+    await refreshTrunkCache();
 
     // Load queues from disk on startup
     await loadQueuesFromDisk();
