@@ -3352,7 +3352,7 @@ app.post('/api/asterisk/cli', authenticateAdmin, async (req, res) => {
 });
 
 // Get Asterisk version and status
-app.get('/api/asterisk/status', authenticateAdmin, async (req, res) => {
+app.get('/api/asterisk/status', async (req, res) => {
   try {
     const execWithTimeout = (command, timeoutMs = 5000) => {
       return new Promise(resolve => {
