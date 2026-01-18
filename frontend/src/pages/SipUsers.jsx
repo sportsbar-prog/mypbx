@@ -12,8 +12,7 @@ import {
   VisibilityOff, Phone as PhoneIcon, Person as PersonIcon,
   ContentCopy as CopyIcon, Settings as SettingsIcon
 } from '@mui/icons-material';
-
-const API_URL = 'http://localhost:3000';
+import { api } from '../services/api';
 
 // Common codec options
 const CODEC_OPTIONS = ['ulaw', 'alaw', 'g722', 'g729', 'opus', 'gsm'];
@@ -39,9 +38,6 @@ function SipUsers() {
   // Dialog state
   const [dialog, setDialog] = useState({ open: false, mode: 'add', data: {} });
   const [configDialog, setConfigDialog] = useState({ open: false, user: null });
-  
-  const token = localStorage.getItem('adminToken');
-  const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   const defaultUser = {
     username: '',
@@ -61,15 +57,14 @@ function SipUsers() {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/sip-users`, { headers });
-      const data = await res.json();
-      if (data.success) {
-        setUsers(data.users || []);
+      const res = await api.get('/asterisk/sip-users');
+      if (res.data.success) {
+        setUsers(res.data.users || []);
       } else {
-        setError(data.error || 'Failed to load SIP users');
+        setError(res.data.error || 'Failed to load SIP users');
       }
     } catch (err) {
-      setError('Failed to connect to server');
+      setError(`Failed to connect to server: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -80,24 +75,21 @@ function SipUsers() {
   const handleSave = async () => {
     const { mode, data } = dialog;
     try {
-      const url = mode === 'add' 
-        ? `${API_URL}/api/asterisk/sip-users`
-        : `${API_URL}/api/asterisk/sip-users/${dialog.originalUsername}`;
+      const res = mode === 'add'
+        ? await api.post('/asterisk/sip-users', data)
+        : await api.put(`/asterisk/sip-users/${dialog.originalUsername}`, data);
       
-      const res = await fetch(url, {
-        method: mode === 'add' ? 'POST' : 'PUT',
-        headers,
-        body: JSON.stringify(data)
-      });
-      
-      const result = await res.json();
-      if (result.success) {
+      if (res.data.success) {
         setSuccess(mode === 'add' ? 'SIP user created' : 'SIP user updated');
         setDialog({ open: false, mode: 'add', data: {} });
         fetchUsers();
       } else {
-        setError(result.error);
+        setError(res.data.error);
       }
+    } catch (err) {
+      setError(`Failed to save SIP user: ${err.message}`);
+    }
+  };
     } catch (err) {
       setError('Failed to save SIP user');
     }
@@ -106,37 +98,29 @@ function SipUsers() {
   const handleDelete = async (username) => {
     if (!window.confirm(`Delete SIP user "${username}"?`)) return;
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/sip-users/${username}`, {
-        method: 'DELETE',
-        headers
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await api.delete(`/asterisk/sip-users/${username}`);
+      if (res.data.success) {
         setSuccess('SIP user deleted');
         fetchUsers();
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Failed to delete SIP user');
+      setError(`Failed to delete SIP user: ${err.message}`);
     }
   };
 
   const handleApply = async () => {
     if (!window.confirm('Apply SIP users to Asterisk? This will write pjsip_users.conf')) return;
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/sip-users/apply`, {
-        method: 'POST',
-        headers
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await api.post('/asterisk/sip-users/apply', {});
+      if (res.data.success) {
         setSuccess('SIP users applied to Asterisk');
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Failed to apply SIP users');
+      setError(`Failed to apply SIP users: ${err.message}`);
     }
   };
 
