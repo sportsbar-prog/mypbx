@@ -86,7 +86,15 @@ let systemSettings = {
 };
 
 function renderTemplate(template, vars) {
-  return template.replace(/\{([^}]+)\}/g, (_, key) => vars[key] || '');
+  // Ensure we have actual newlines, not escaped ones
+  let processedTemplate = template;
+  
+  // If template contains literal backslash-n, convert to actual newlines
+  if (typeof processedTemplate === 'string' && processedTemplate.includes('\\n')) {
+    processedTemplate = processedTemplate.replace(/\\n/g, '\n');
+  }
+  
+  return processedTemplate.replace(/\{([^}]+)\}/g, (_, key) => vars[key] || '');
 }
 
 function getNextTrunkRoundRobin() {
@@ -2871,8 +2879,7 @@ async function generatePJSIPConfigForTrunkWithTemplate(trunk, trunkData, templat
       const sections = ['registration', 'auth', 'aor', 'endpoint', 'identify'];
       for (const section of sections) {
         if (template[section]) {
-          // Replace literal \n with actual newlines in templates
-          const renderedSection = renderTemplate(template[section].replace(/\\n/g, '\n'), vars);
+          const renderedSection = renderTemplate(template[section], vars);
           trunkConfig += renderedSection + '\n';
         }
       }
@@ -3548,8 +3555,7 @@ async function generatePjsipUsersWithTemplates(users) {
     const sections = ['auth', 'aor', 'endpoint'];
     for (const section of sections) {
       if (template[section]) {
-        // Replace literal \n with actual newlines in templates
-        const renderedSection = renderTemplate(template[section].replace(/\\n/g, '\n'), vars);
+        const renderedSection = renderTemplate(template[section], vars);
         output += renderedSection + '\n';
       }
     }
