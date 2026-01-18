@@ -93,13 +93,11 @@ async function runMigrations() {
     }
 
     console.log('✨ All migrations completed successfully!');
-    process.exit(0);
   } catch (error) {
     console.error('❌ Migration failed:', error.message);
-    process.exit(1);
+    throw error;
   } finally {
     client.release();
-    db.end();
   }
 }
 
