@@ -4304,6 +4304,10 @@ async function startServer() {
     // Load queues from disk on startup
     await loadQueuesFromDisk();
     
+    // Reload PJSIP to pick up endpoint configs
+    console.log('🔄 Reloading PJSIP on startup...');
+    await reloadAsteriskConfig('pjsip');
+    
     // Log configuration paths
     console.log(`📁 Asterisk config directory: ${ASTERISK_CONFIG_DIR}`);
     console.log(`📁 Recordings directory: ${actualRecordingsDir}`);
