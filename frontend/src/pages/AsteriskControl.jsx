@@ -92,21 +92,21 @@ function AsteriskControl() {
   };
 
   const handleReload = async () => {
+    setSuccess(null);
+    setError(null);
+
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/reload`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ module: selectedModule })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSuccess(`Reloaded ${selectedModule} successfully`);
-        if (data.output) setOutput(data.output);
+      const res = await api.post('/asterisk/reload', { module: selectedModule });
+      if (res.data.success) {
+        setSuccess(res.data.message || `Reloaded ${selectedModule} successfully`);
+        if (res.data.output) setOutput(res.data.output);
+        fetchStatus();
       } else {
-        setError(data.error);
+        setError(res.data.error || res.data.message || 'Reload failed');
+        if (res.data.output) setOutput(res.data.output);
       }
     } catch (err) {
-      setError('Failed to reload');
+      setError(`Failed to reload: ${err.message}`);
     }
   };
 
