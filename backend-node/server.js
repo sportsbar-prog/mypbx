@@ -3205,44 +3205,81 @@ app.post('/api/asterisk/dialplan/apply', authenticateAdmin, async (req, res) => 
 // In-memory SIP users storage
 let sipUsers = [];
 
-// Parse pjsip_users.conf or similar
+// Parse SIP users from pjsip.conf (expects blocks marked with ; === SIP USER: ... ===)
 function parsePjsipUsers(content) {
   const users = [];
-  let currentSection = null;
-  let currentType = null;
-  let currentData = {};
   const lines = content.split('\n');
-  
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith(';') || trimmed === '') continue;
-    
-    const sectionMatch = trimmed.match(/^\[([^\]]+)\](?:\(([^)]+)\))?$/);
-    if (sectionMatch) {
-      if (currentSection && currentType === 'endpoint') {
-        users.push({ ...currentData, name: currentSection });
-      }
-      currentSection = sectionMatch[1];
-      currentType = null;
-      currentData = {};
+  let current = null;
+  let section = '';
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    if (line.startsWith('; === SIP USER:')) {
+      // Begin new user block
+      const name = line.replace('; === SIP USER:', '').replace('===', '').trim();
+      current = {
+        name,
+        username: name,
+        context: 'default',
+        codecs: 'ulaw,alaw,g722',
+        transport: 'transport-udp',
+        callerid: `"${name}" <${name}>`,
+        maxContacts: 5,
+        password: '',
+      };
+      section = '';
       continue;
     }
-    
-    const kvMatch = trimmed.match(/^([^=]+)=(.*)$/);
-    if (kvMatch && currentSection) {
-      const key = kvMatch[1].trim();
-      const value = kvMatch[2].trim();
-      if (key === 'type') {
-        currentType = value;
-      }
-      currentData[key] = value;
+
+    if (line.startsWith('; === END SIP USER')) {
+      if (current) users.push(current);
+      current = null;
+      section = '';
+      continue;
+    }
+
+    // Track which section we're in
+    const sectionMatch = line.match(/^\[([^\]]+)\]/);
+    if (sectionMatch) {
+      const name = sectionMatch[1];
+      if (current && name === `${current.name}`) section = 'endpoint';
+      else if (current && name === `${current.name}-auth`) section = 'auth';
+      else if (current && name === `${current.name}`) section = 'aor';
+      else section = '';
+      continue;
+    }
+
+    if (!current) continue;
+
+    const kv = line.match(/^([^=]+)=(.*)$/);
+    if (!kv) continue;
+    const key = kv[1].trim();
+    const value = kv[2].trim();
+
+    if (section === 'endpoint') {
+      if (key === 'context') current.context = value;
+      if (key === 'allow') current.codecs = value;
+      if (key === 'transport') current.transport = value;
+      if (key === 'callerid') current.callerid = value;
+      if (key === 'direct_media') current.directMedia = value === 'yes';
+      if (key === 'rtp_symmetric') current.rtp_symmetric = value === 'yes';
+      if (key === 'force_rport') current.force_rport = value === 'yes';
+      if (key === 'rewrite_contact') current.rewrite_contact = value === 'yes';
+    }
+
+    if (section === 'auth') {
+      if (key === 'password') current.password = value;
+      if (key === 'username') current.username = value;
+    }
+
+    if (section === 'aor') {
+      if (key === 'max_contacts') current.maxContacts = parseInt(value) || 5;
+      if (key === 'qualify_frequency') current.qualifyFrequency = parseInt(value) || undefined;
     }
   }
-  
-  if (currentSection && currentType === 'endpoint') {
-    users.push({ ...currentData, name: currentSection });
-  }
-  
+
   return users;
 }
 
@@ -3298,23 +3335,18 @@ function generatePjsipUsers(users) {
 // Get all SIP users - reads from pjsip.conf
 app.get('/api/asterisk/sip-users', authenticateAdmin, async (req, res) => {
   try {
-    // Read from pjsip.conf
     const result = await readAsteriskConfig('pjsip.conf');
     if (result.success) {
-      const users = parsePjsipUsers(result.content);
-      sipUsers = users.map(u => ({
-        name: u.name,
-        username: u.name,
-        password: '********', // Don't expose passwords
-        context: u.context || 'default',
-        codecs: u.allow || 'ulaw,alaw',
-        transport: u.transport || 'transport-udp',
-        callerid: u.callerid || '',
-        maxContacts: parseInt(u.max_contacts) || 5,
-        enabled: true
-      }));
+      // Keep real passwords internally; mask in response
+      sipUsers = parsePjsipUsers(result.content);
     }
-    res.json({ success: true, users: sipUsers, count: sipUsers.length });
+
+    const safeUsers = sipUsers.map(u => ({
+      ...u,
+      password: '********',
+    }));
+
+    res.json({ success: true, users: safeUsers, count: safeUsers.length });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
