@@ -90,10 +90,6 @@ function SipUsers() {
       setError(`Failed to save SIP user: ${err.message}`);
     }
   };
-    } catch (err) {
-      setError('Failed to save SIP user');
-    }
-  };
 
   const handleDelete = async (username) => {
     if (!window.confirm(`Delete SIP user "${username}"?`)) return;
