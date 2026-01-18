@@ -2621,27 +2621,44 @@ app.post('/api/trunks/unassign', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Helper function to generate PJSIP config - writes directly to pjsip.conf
+// Ensure pjsip.conf contains includes for trunks/users
+function ensurePjsipIncludes() {
+  const PJSIP_CONF = path.join(ASTERISK_CONFIG_DIR, 'pjsip.conf');
+  let config = '';
+  try {
+    config = fs.readFileSync(PJSIP_CONF, 'utf8');
+  } catch (e) {
+    config = getDefaultConfig('pjsip.conf');
+  }
+  const needsTrunks = !config.match(/#include\s+pjsip_trunks\.conf/);
+  const needsUsers = !config.match(/#include\s+pjsip_users\.conf/);
+  if (needsTrunks || needsUsers) {
+    let toAppend = '';
+    if (needsTrunks) toAppend += '#include pjsip_trunks.conf\n';
+    if (needsUsers) toAppend += '#include pjsip_users.conf\n';
+    config = config.trimEnd() + '\n' + toAppend;
+    fs.writeFileSync(PJSIP_CONF, config, 'utf8');
+    console.log('✅ Ensured pjsip.conf includes trunks/users');
+  }
+}
+
+// Helper function to generate PJSIP config for a trunk (writes to pjsip_trunks.conf)
 async function generatePJSIPConfigForTrunk(trunk, deleteTrunkName = null) {
   try {
-    const PJSIP_CONF = path.join(ASTERISK_CONFIG_DIR, 'pjsip.conf');
-    
-    // Read current config
+    ensurePjsipIncludes();
+    const PJSIP_TRUNKS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_trunks.conf');
     let config = '';
     try {
-      config = fs.readFileSync(PJSIP_CONF, 'utf8');
+      config = fs.readFileSync(PJSIP_TRUNKS, 'utf8');
     } catch (e) {
-      console.log('Creating new pjsip.conf');
-      config = getDefaultConfig('pjsip.conf');
+      config = getDefaultConfig('pjsip_trunks.conf');
     }
-    
-    // Remove old trunk config if deleting
+
     if (deleteTrunkName) {
       const regex = new RegExp(`; === TRUNK: ${deleteTrunkName} ===[\\s\\S]*?; === END TRUNK: ${deleteTrunkName} ===\\n`, 'g');
       config = config.replace(regex, '');
     }
-    
-    // Add new trunk config if creating
+
     if (trunk) {
       const username = trunk.username || trunk.trunk_name;
       const password = trunk.password || '';
@@ -2649,7 +2666,7 @@ async function generatePJSIPConfigForTrunk(trunk, deleteTrunkName = null) {
       const port = trunk.port || 5060;
       const context = trunk.context || 'default';
       const codecs = trunk.codecs || 'ulaw,alaw';
-      
+
       const trunkConfig = `
 ; === TRUNK: ${trunk.trunk_name} ===
 [${trunk.trunk_name}]
@@ -2668,35 +2685,30 @@ auth_type=userpass
 username=${username}
 password=${password}
 
-[${trunk.trunk_name}]
+[${trunk.trunk_name}-aor]
 type=aor
 contact=sip:${server}:${port}
 qualify_frequency=60
 
-[${trunk.trunk_name}]
+[${trunk.trunk_name}-endpoint]
 type=endpoint
 transport=transport-udp
 context=${context}
 disallow=all
 allow=${codecs}
 outbound_auth=${trunk.trunk_name}-auth
-aors=${trunk.trunk_name}
+aors=${trunk.trunk_name}-aor
 from_user=${username}
 from_domain=${server}
 direct_media=no
 ; === END TRUNK: ${trunk.trunk_name} ===
 `;
-      
+
       config += trunkConfig;
     }
-    
-    // Remove include directives if they exist
-    config = config.replace(/#include\s+pjsip_trunks\.conf\n/g, '');
-    config = config.replace(/#include\s+pjsip_users\.conf\n/g, '');
-    
-    // Write back to file
-    fs.writeFileSync(PJSIP_CONF, config, 'utf8');
-    console.log(`✅ Updated pjsip.conf with trunk config`);
+
+    fs.writeFileSync(PJSIP_TRUNKS, config, 'utf8');
+    console.log(`✅ Updated pjsip_trunks.conf`);
   } catch (error) {
     console.error('Error updating PJSIP trunk config:', error);
   }
@@ -3328,20 +3340,18 @@ function generatePjsipUsers(users) {
   return output;
 }
 
-// Get all SIP users - reads from pjsip.conf
+// Get all SIP users - reads from pjsip_users.conf (fallback to pjsip.conf)
 app.get('/api/asterisk/sip-users', authenticateAdmin, async (req, res) => {
   try {
-    const result = await readAsteriskConfig('pjsip.conf');
+    let result = await readAsteriskConfig('pjsip_users.conf');
+    if (!result.success) {
+      result = await readAsteriskConfig('pjsip.conf');
+    }
     if (result.success) {
-      // Keep real passwords internally; mask in response
       sipUsers = parsePjsipUsers(result.content);
     }
 
-    const safeUsers = sipUsers.map(u => ({
-      ...u,
-      password: '********',
-    }));
-
+    const safeUsers = sipUsers.map(u => ({ ...u, password: '********' }));
     res.json({ success: true, users: safeUsers, count: safeUsers.length });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -3401,6 +3411,15 @@ app.post('/api/asterisk/sip-users', authenticateAdmin, (req, res) => {
   };
   
   sipUsers.push(user);
+  // Persist to file (no reload) to survive restarts
+  try {
+    ensurePjsipIncludes();
+    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
+    const userConfigs = generatePjsipUsers(sipUsers);
+    fs.writeFileSync(PJSIP_USERS, userConfigs, 'utf8');
+  } catch (err) {
+    console.warn('⚠️ Could not persist SIP users immediately:', err.message);
+  }
   res.json({ success: true, user: { ...user, password: '********' } });
 });
 
@@ -3428,7 +3447,16 @@ app.put('/api/asterisk/sip-users/:username', authenticateAdmin, (req, res) => {
   if (updates.enabled !== undefined) user.enabled = updates.enabled;
   
   user.updatedAt = new Date().toISOString();
-  
+  // Persist to file (no reload)
+  try {
+    ensurePjsipIncludes();
+    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
+    const userConfigs = generatePjsipUsers(sipUsers);
+    fs.writeFileSync(PJSIP_USERS, userConfigs, 'utf8');
+  } catch (err) {
+    console.warn('⚠️ Could not persist SIP users immediately:', err.message);
+  }
+
   res.json({ success: true, user: { ...user, password: '********' } });
 });
 
@@ -3436,27 +3464,24 @@ app.put('/api/asterisk/sip-users/:username', authenticateAdmin, (req, res) => {
 app.delete('/api/asterisk/sip-users/:username', authenticateAdmin, (req, res) => {
   const before = sipUsers.length;
   sipUsers = sipUsers.filter(u => u.username !== req.params.username && u.name !== req.params.username);
+  // Persist deletion
+  try {
+    ensurePjsipIncludes();
+    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
+    const userConfigs = generatePjsipUsers(sipUsers);
+    fs.writeFileSync(PJSIP_USERS, userConfigs, 'utf8');
+  } catch (err) {
+    console.warn('⚠️ Could not persist SIP users immediately:', err.message);
+  }
   res.json({ success: true, removed: before !== sipUsers.length });
 });
 
-// Apply SIP users to Asterisk - writes to pjsip.conf
+// Apply SIP users to Asterisk - writes to pjsip_users.conf
 app.post('/api/asterisk/sip-users/apply', authenticateAdmin, async (req, res) => {
   try {
-    const PJSIP_CONF = path.join(ASTERISK_CONFIG_DIR, 'pjsip.conf');
-    
-    // Read current config
-    let config = '';
-    try {
-      config = fs.readFileSync(PJSIP_CONF, 'utf8');
-    } catch (e) {
-      config = getDefaultConfig('pjsip.conf');
-    }
-    
-    // Remove old SIP user sections (marked with SIP USER comments)
-    const regex = /; === SIP USER: [\s\S]*?; === END SIP USER.*?\n/g;
-    config = config.replace(regex, '');
-    
-    // Generate SIP user configs
+    ensurePjsipIncludes();
+    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
+
     const userConfigs = sipUsers.map(user => {
       const name = user.name || user.username;
       const password = user.password || 'changeme';
@@ -3464,48 +3489,41 @@ app.post('/api/asterisk/sip-users/apply', authenticateAdmin, async (req, res) =>
       const transport = user.transport || 'transport-udp';
       const codecs = user.codecs || 'ulaw,alaw,g722';
       const callerid = user.callerid || `"${name}" <${name}>`;
-      
       const aorName = `${name}-aor`;
       return `; === SIP USER: ${name} ===
-    [${name}](endpoint-template)
-    type=endpoint
-    context=${context}
-    disallow=all
-    allow=${codecs}
-    auth=${name}-auth
-    aors=${aorName}
-    callerid=${callerid}
-    transport=${transport}
-    direct_media=no
-    rtp_symmetric=yes
-    force_rport=yes
-    rewrite_contact=yes
+[${name}](endpoint-template)
+type=endpoint
+context=${context}
+disallow=all
+allow=${codecs}
+auth=${name}-auth
+aors=${aorName}
+callerid=${callerid}
+transport=${transport}
+direct_media=no
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=yes
 
-    [${name}-auth]
-    type=auth
-    auth_type=userpass
-    username=${name}
-    password=${password}
+[${name}-auth]
+type=auth
+auth_type=userpass
+username=${name}
+password=${password}
 
-    [${aorName}]
-    type=aor
-    max_contacts=5
-    remove_existing=yes
+[${aorName}]
+type=aor
+max_contacts=5
+remove_existing=yes
 
-    ; === END SIP USER: ${name} ===
-    `;
+; === END SIP USER: ${name} ===
+`;
     }).join('\n');
-    
-    // Append user configs to pjsip.conf
-    if (userConfigs.trim()) {
-      config += '\n' + userConfigs;
-    }
-    
-    // Write back to file
-    fs.writeFileSync(PJSIP_CONF, config, 'utf8');
-    console.log(`✅ Updated pjsip.conf with ${sipUsers.length} SIP users`);
-    
-    // Reload PJSIP
+
+    const content = `; PJSIP Users - Generated by Asterisk GUI\n${userConfigs}\n`;
+    fs.writeFileSync(PJSIP_USERS, content, 'utf8');
+    console.log(`✅ Updated pjsip_users.conf with ${sipUsers.length} SIP users`);
+
     const reloadResult = await reloadAsteriskConfig('pjsip');
     res.json({ 
       success: true, 
