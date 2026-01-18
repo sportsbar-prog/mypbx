@@ -2804,36 +2804,39 @@ async function reloadAsteriskConfig(module = 'all') {
     exec(cmd, { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       // Log everything for debugging
       console.log(`[RELOAD-RESPONSE]`, { error: error ? error.code : 'none', stdout, stderr });
+
+      const combinedOut = [stdout, stderr].filter(Boolean).join('\n');
       
       // Success if:
       // 1. No error and has output
       // 2. Has output (even with error code - some modules return success but with non-zero exit)
       // 3. stderr contains success message
       const hasOutput = stdout && stdout.trim().length > 0;
+      const hasStderr = stderr && stderr.trim().length > 0;
       const hasSuccessMessage = stdout && stdout.includes('reloaded successfully');
       const noError = !error;
       
       if (noError && hasOutput) {
         // Clean successful execution
         console.log(`[RELOAD-SUCCESS] Clean execution with output`);
-        resolve({ success: true, output: stdout });
-      } else if (hasOutput || hasSuccessMessage) {
-        // Has output indicating success despite exit code
+        resolve({ success: true, output: combinedOut || stdout });
+      } else if (hasOutput || hasStderr || hasSuccessMessage) {
+        // Has output indicating possible success despite exit code
         console.log(`[RELOAD-SUCCESS] Output indicates success despite error code`);
-        resolve({ success: true, output: stdout || stderr });
+        resolve({ success: true, output: combinedOut || stdout || stderr });
       } else if (error && error.killed) {
         // Timeout occurred
         console.error(`[RELOAD-TIMEOUT] Command timeout for ${module}`);
-        resolve({ success: false, error: `Reload timeout - command took too long` });
+        resolve({ success: false, error: `Reload timeout - command took too long`, output: combinedOut });
       } else if (error && error.code === 127) {
         // Command not found
         console.error(`[RELOAD-NOTFOUND] asterisk command not found`);
-        resolve({ success: false, error: `asterisk command not found in system PATH` });
+        resolve({ success: false, error: `asterisk command not found in system PATH`, output: combinedOut });
       } else {
         // Generic error
         const errorMsg = stderr || (error ? error.message : 'Unknown error');
         console.error(`[RELOAD-ERROR]`, errorMsg);
-        resolve({ success: false, error: errorMsg });
+        resolve({ success: false, error: errorMsg, output: combinedOut });
       }
     });
   });
@@ -3401,6 +3404,7 @@ app.post('/api/asterisk/reload', authenticateAdmin, async (req, res) => {
         success: false,
         message: `${module} reload failed`,
         error: result.error,
+        output: result.output,
         timestamp: new Date().toISOString()
       });
     }
