@@ -103,4 +103,81 @@ async function runMigrations() {
   }
 }
 
-runMigrations();
+async function createSipUsersTable() {
+  const client = await db.connect();
+  try {
+    console.log('\n🔧 Creating sip_users table...\n');
+
+    // Check if table exists
+    const tableExists = await client.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'sip_users'
+      );
+    `);
+
+    if (tableExists.rows[0].exists) {
+      console.log('ℹ️  sip_users table already exists\n');
+      return;
+    }
+
+    // Create sip_users table
+    await client.query(`
+      CREATE TABLE sip_users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        secret VARCHAR(100) NOT NULL,
+        extension VARCHAR(20) NOT NULL,
+        context VARCHAR(50) DEFAULT 'default',
+        codecs VARCHAR(200) DEFAULT 'ulaw,alaw',
+        max_contacts INTEGER DEFAULT 1,
+        qualify_frequency INTEGER DEFAULT 30,
+        transport VARCHAR(50) DEFAULT 'transport-udp',
+        template_type VARCHAR(50) DEFAULT 'basic_user',
+        callerid VARCHAR(100),
+        voicemail VARCHAR(100),
+        call_limit INTEGER DEFAULT 5,
+        is_active BOOLEAN DEFAULT true,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT valid_template_type CHECK (template_type IN ('basic_user', 'advanced_user', 'mobile_user', 'webrtc_user'))
+      );
+    `);
+
+    // Create indexes
+    await client.query(`
+      CREATE INDEX idx_sip_users_username ON sip_users(username);
+      CREATE INDEX idx_sip_users_extension ON sip_users(extension);
+      CREATE INDEX idx_sip_users_active ON sip_users(is_active);
+    `);
+
+    // Create trigger for updated_at
+    await client.query(`
+      CREATE TRIGGER update_sip_users_updated_at 
+      BEFORE UPDATE ON sip_users
+      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    `);
+
+    console.log('✅ sip_users table created successfully\n');
+  } catch (error) {
+    console.error('❌ Error creating sip_users table:', error.message);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// Run migrations and then create sip_users table
+(async () => {
+  try {
+    await runMigrations();
+    await createSipUsersTable();
+    console.log('\n✨ Database initialization complete!');
+    process.exit(0);
+  } catch (error) {
+    console.error('\n❌ Database initialization failed:', error.message);
+    process.exit(1);
+  }
+})();

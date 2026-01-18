@@ -123,6 +123,28 @@ CREATE TABLE IF NOT EXISTS sip_trunks (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- SIP users table
+CREATE TABLE IF NOT EXISTS sip_users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    secret VARCHAR(100) NOT NULL,
+    extension VARCHAR(20) NOT NULL,
+    context VARCHAR(50) DEFAULT 'default',
+    codecs VARCHAR(200) DEFAULT 'ulaw,alaw',
+    max_contacts INTEGER DEFAULT 1,
+    qualify_frequency INTEGER DEFAULT 30,
+    transport VARCHAR(50) DEFAULT 'transport-udp',
+    template_type VARCHAR(50) DEFAULT 'basic_user',
+    callerid VARCHAR(100),
+    voicemail VARCHAR(100),
+    call_limit INTEGER DEFAULT 5,
+    is_active BOOLEAN DEFAULT true,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT valid_template_type CHECK (template_type IN ('basic_user', 'advanced_user', 'mobile_user', 'webrtc_user'))
+);
+
 -- ============== INDEXES ==============
 
 CREATE INDEX idx_admin_sessions_token ON admin_sessions(session_token);
@@ -137,6 +159,9 @@ CREATE INDEX idx_call_logs_created ON call_logs(created_at);
 CREATE INDEX idx_credit_transactions_api_key ON credit_transactions(api_key_id);
 CREATE INDEX idx_sip_trunks_name ON sip_trunks(trunk_name);
 CREATE INDEX idx_sip_trunks_active ON sip_trunks(is_active);
+CREATE INDEX idx_sip_users_username ON sip_users(username);
+CREATE INDEX idx_sip_users_extension ON sip_users(extension);
+CREATE INDEX idx_sip_users_active ON sip_users(is_active);
 
 -- ============== FUNCTIONS ==============
 
@@ -157,6 +182,10 @@ CREATE TRIGGER update_api_keys_updated_at BEFORE UPDATE ON api_keys
 
 -- Trigger for sip_trunks updated_at
 CREATE TRIGGER update_sip_trunks_updated_at BEFORE UPDATE ON sip_trunks
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Trigger for sip_users updated_at
+CREATE TRIGGER update_sip_users_updated_at BEFORE UPDATE ON sip_users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============== DEFAULT DATA ==============

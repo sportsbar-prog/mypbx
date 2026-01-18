@@ -2478,8 +2478,34 @@ app.get('/api/me', authenticateApiKey, async (req, res) => {
 
 // List supported providers and templates
 app.get('/api/providers', (req, res) => {
-  const providers = Object.keys(providerTemplates).filter(k => !['global', 'transport', '_info'].includes(k));
+  const providers = Object.keys(providerTemplates).filter(k => !['global', 'transport', '_info', 'user_templates'].includes(k));
   res.json({ success: true, providers, info: providerTemplates._info || null });
+});
+
+// Get user templates
+app.get('/api/user-templates', (req, res) => {
+  const templates = providerTemplates.user_templates || {};
+  res.json({ success: true, templates });
+});
+
+// Get specific provider template details
+app.get('/api/providers/:provider/details', (req, res) => {
+  const { provider } = req.params;
+  const template = providerTemplates[provider];
+  if (!template) {
+    return res.status(404).json({ success: false, error: 'Provider template not found' });
+  }
+  res.json({ success: true, template });
+});
+
+// Get specific user template details
+app.get('/api/user-templates/:template', (req, res) => {
+  const { template } = req.params;
+  const userTemplate = providerTemplates.user_templates?.[template];
+  if (!userTemplate) {
+    return res.status(404).json({ success: false, error: 'User template not found' });
+  }
+  res.json({ success: true, template: userTemplate });
 });
 
 // Preview rendered PJSIP config for a provider
@@ -2520,30 +2546,75 @@ app.get('/api/trunks', authenticateAdmin, async (req, res) => {
 });
 
 app.post('/api/trunks', authenticateAdmin, async (req, res) => {
-  const { trunk_name, provider, username, password, sip_server, server, sip_port, port, context, codecs, registration_enabled, from_user } = req.body || {};
+  const trunkData = req.body || {};
+  const { trunk_name, provider } = trunkData;
   
-  // Accept either 'server' or 'sip_server' from frontend
-  const serverAddr = server || sip_server;
-  const serverPort = port || sip_port || 5060;
+  if (!trunk_name) {
+    return res.status(400).json({ success: false, error: 'trunk_name is required' });
+  }
   
-  if (!trunk_name || !serverAddr) {
-    return res.status(400).json({ success: false, error: 'trunk_name and server are required' });
+  if (!provider) {
+    return res.status(400).json({ success: false, error: 'provider is required' });
   }
   
   try {
+    // Get provider template
+    const template = providerTemplates[provider];
+    if (!template) {
+      return res.status(400).json({ success: false, error: `Unknown provider: ${provider}` });
+    }
+    
+    // Validate required fields
+    const required = template.required_fields || [];
+    const missing = required.filter(field => !trunkData[field]);
+    if (missing.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Missing required fields for ${provider}: ${missing.join(', ')}` 
+      });
+    }
+    
+    // Extract and normalize fields
+    const server = trunkData.server || trunkData.sip_server || template.default_server || '';
+    const port = trunkData.port || trunkData.sip_port || template.default_port || 5060;
+    const context = trunkData.context || 'default';
+    const codecs = trunkData.codecs || template.default_codecs || 'ulaw,alaw';
+    const auth_type = template.auth_type || 'credential';
+    const registration_enabled = trunkData.registration_enabled !== false;
+    
     // Insert into database
     const result = await db.query(
-      `INSERT INTO sip_trunks (trunk_name, provider, username, password, server, port, context, codecs, registration_enabled) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+      `INSERT INTO sip_trunks (trunk_name, provider, username, password, server, port, context, codecs, auth_type, registration_enabled, is_active) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
        RETURNING *`,
-      [trunk_name, provider || 'custom', username, password, serverAddr, serverPort, context || 'default', codecs || 'ulaw,alaw', registration_enabled !== false]
+      [
+        trunk_name,
+        provider,
+        trunkData.username || '',
+        trunkData.password || '',
+        server,
+        port,
+        context,
+        codecs,
+        auth_type,
+        registration_enabled,
+        true
+      ]
     );
     
-    // Generate PJSIP config
+    // Generate PJSIP config using template
     const trunk = result.rows[0];
-    await generatePJSIPConfigForTrunk(trunk);
+    await generatePJSIPConfigForTrunkWithTemplate(trunk, trunkData, template);
     
-    res.json({ success: true, trunk: trunk, message: 'Trunk created. Reload Asterisk to apply changes.' });
+    // Auto-reload PJSIP
+    const reloadResult = await reloadAsteriskConfig('pjsip');
+    
+    res.json({ 
+      success: true, 
+      trunk: trunk, 
+      message: 'Trunk created and applied to Asterisk',
+      reload: reloadResult
+    });
   } catch (error) {
     console.error('Error creating trunk:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -2551,11 +2622,25 @@ app.post('/api/trunks', authenticateAdmin, async (req, res) => {
 });
 
 app.put('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
-  const { trunk_name, provider, username, password, server, port, context, codecs, registration_enabled } = req.body;
+  const trunkData = req.body;
+  const { provider } = trunkData;
   
   try {
-    const serverAddr = server || req.body.sip_server;
-    const serverPort = port || req.body.sip_port || 5060;
+    // Get current trunk to keep provider if not changed
+    const current = await db.query('SELECT * FROM sip_trunks WHERE trunk_name = $1', [req.params.trunkName]);
+    if (current.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Trunk not found' });
+    }
+    
+    const currentProvider = provider || current.rows[0].provider;
+    const template = providerTemplates[currentProvider];
+    
+    if (!template) {
+      return res.status(400).json({ success: false, error: `Unknown provider: ${currentProvider}` });
+    }
+    
+    const serverAddr = trunkData.server || trunkData.sip_server || current.rows[0].server;
+    const serverPort = trunkData.port || trunkData.sip_port || current.rows[0].port || 5060;
     
     const result = await db.query(
       `UPDATE sip_trunks 
@@ -2563,17 +2648,32 @@ app.put('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
            context = $6, codecs = $7, registration_enabled = $8 
        WHERE trunk_name = $9 
        RETURNING *`,
-      [provider, username, password, serverAddr, serverPort, context || 'default', codecs || 'ulaw,alaw', registration_enabled !== false, req.params.trunkName]
+      [
+        currentProvider,
+        trunkData.username || current.rows[0].username,
+        trunkData.password || current.rows[0].password,
+        serverAddr,
+        serverPort,
+        trunkData.context || current.rows[0].context || 'default',
+        trunkData.codecs || current.rows[0].codecs || 'ulaw,alaw',
+        trunkData.registration_enabled !== false,
+        req.params.trunkName
+      ]
     );
     
-    if (result.rows.length > 0) {
-      // Regenerate PJSIP config
-      await generatePJSIPConfigForTrunk(null, req.params.trunkName); // Remove old
-      await generatePJSIPConfigForTrunk(result.rows[0]); // Add new
-      res.json({ success: true, trunk: result.rows[0], message: 'Trunk updated. Reload Asterisk to apply changes.' });
-    } else {
-      res.status(404).json({ success: false, error: 'Trunk not found' });
-    }
+    // Regenerate PJSIP config with template
+    await generatePJSIPConfigForTrunkWithTemplate(null, null, null, req.params.trunkName); // Remove old
+    await generatePJSIPConfigForTrunkWithTemplate(result.rows[0], trunkData, template); // Add new
+    
+    // Auto-reload
+    const reloadResult = await reloadAsteriskConfig('pjsip');
+    
+    res.json({ 
+      success: true, 
+      trunk: result.rows[0], 
+      message: 'Trunk updated and applied to Asterisk',
+      reload: reloadResult
+    });
   } catch (error) {
     console.error('Error updating trunk:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -2588,8 +2688,17 @@ app.delete('/api/trunks/:trunkName', authenticateAdmin, async (req, res) => {
     );
     
     if (result.rows.length > 0) {
-      await generatePJSIPConfigForTrunk(null, req.params.trunkName);
-      res.json({ success: true, removed: true, message: 'Trunk deleted. Reload Asterisk to apply changes.' });
+      await generatePJSIPConfigForTrunkWithTemplate(null, null, null, req.params.trunkName);
+      
+      // Auto-reload
+      const reloadResult = await reloadAsteriskConfig('pjsip');
+      
+      res.json({ 
+        success: true, 
+        removed: true, 
+        message: 'Trunk deleted and changes applied to Asterisk',
+        reload: reloadResult
+      });
     } else {
       res.json({ success: false, removed: false, error: 'Trunk not found' });
     }
@@ -2711,6 +2820,71 @@ direct_media=no
     console.log(`✅ Updated pjsip_trunks.conf`);
   } catch (error) {
     console.error('Error updating PJSIP trunk config:', error);
+  }
+}
+
+// Helper function to generate PJSIP config for a trunk using provider templates
+async function generatePJSIPConfigForTrunkWithTemplate(trunk, trunkData, template, deleteTrunkName = null) {
+  try {
+    ensurePjsipIncludes();
+    const PJSIP_TRUNKS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_trunks.conf');
+    let config = '';
+    try {
+      config = fs.readFileSync(PJSIP_TRUNKS, 'utf8');
+    } catch (e) {
+      config = '';
+    }
+
+    // Delete existing trunk config if needed
+    if (deleteTrunkName) {
+      const regex = new RegExp(`; === TRUNK: ${deleteTrunkName} ===[\\s\\S]*?; === END TRUNK: ${deleteTrunkName} ===\\n`, 'g');
+      config = config.replace(regex, '');
+    }
+
+    if (trunk && template) {
+      // Build variables object for template rendering
+      const vars = {
+        trunk_name: trunk.trunk_name,
+        username: trunk.username || trunkData.username || '',
+        password: trunk.password || trunkData.password || '',
+        server: trunk.server,
+        port: trunk.port || 5060,
+        context: trunk.context || 'default',
+        codecs: trunk.codecs || 'ulaw,alaw',
+        // Additional fields from trunkData\n        ...trunkData,
+        // Provider-specific fields
+        sip_server: trunk.server,
+        sip_port: trunk.port || 5060,
+        server_region: trunkData.server_region || trunkData.server_location || '',
+        server_location: trunkData.server_location || '',
+        space_name: trunkData.space_name || '',
+        termination_uri: trunkData.termination_uri || '',
+        from_user: trunkData.from_user || trunkData.did || trunk.username || '',
+        did: trunkData.did || '',
+        match_ip: trunkData.match_ip || trunk.server
+      };
+
+      // Render each section from the template
+      let trunkConfig = `\\n; === TRUNK: ${trunk.trunk_name} ===\\n`;
+      
+      // Add sections in proper order: registration, auth, aor, endpoint, identify
+      const sections = ['registration', 'auth', 'aor', 'endpoint', 'identify'];
+      for (const section of sections) {
+        if (template[section]) {
+          trunkConfig += renderTemplate(template[section], vars) + '\\n';
+        }
+      }
+      
+      trunkConfig += `; === END TRUNK: ${trunk.trunk_name} ===\\n`;
+      
+      config += trunkConfig;
+    }
+
+    fs.writeFileSync(PJSIP_TRUNKS, config, 'utf8');
+    console.log(`✅ Updated pjsip_trunks.conf using template for ${trunk?.trunk_name}`);
+  } catch (error) {
+    console.error('Error updating PJSIP trunk config with template:', error);
+    throw error;
   }
 }
 
@@ -3340,194 +3514,289 @@ function generatePjsipUsers(users) {
   return output;
 }
 
-// Get all SIP users - reads from pjsip_users.conf (fallback to pjsip.conf)
+// Generate PJSIP config for SIP users using user templates
+async function generatePjsipUsersWithTemplates(users) {
+  let output = '; PJSIP Users - Generated by Asterisk GUI\\n';
+  output += '; ' + new Date().toISOString() + '\\n\\n';
+  
+  for (const user of users) {
+    const templateType = user.template_type || 'basic_user';
+    const template = providerTemplates.user_templates?.[templateType];
+    
+    if (!template) {
+      console.warn(`Template ${templateType} not found for user ${user.username}, using basic template`);
+      continue;
+    }
+    
+    // Build variables for template rendering
+    const vars = {
+      username: user.username,
+      secret: user.secret || user.password || '',
+      extension: user.extension || user.username,
+      context: user.context || template.default_context || 'default',
+      codecs: user.codecs || template.default_codecs || 'ulaw,alaw',
+      max_contacts: user.max_contacts || template.default_max_contacts || 1,
+      voicemail: user.voicemail || '',
+      call_limit: user.call_limit || template.default_call_limit || 5
+    };
+    
+    output += `; === SIP USER: ${user.username} (${template.display_name}) ===\\n`;
+    
+    // Render sections: auth, aor, endpoint
+    const sections = ['auth', 'aor', 'endpoint'];
+    for (const section of sections) {
+      if (template[section]) {
+        output += renderTemplate(template[section], vars) + '\\n';
+      }
+    }
+    
+    output += `; === END SIP USER: ${user.username} ===\\n\\n`;
+  }
+  
+  return output;
+}
+
+// Write SIP users to config file with auto-reload
+async function writePJSIPUsersConfig(users) {
+  try {
+    ensurePjsipIncludes();
+    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
+    
+    const content = await generatePjsipUsersWithTemplates(users);
+    fs.writeFileSync(PJSIP_USERS, content, 'utf8');
+    console.log(`✅ Updated pjsip_users.conf with ${users.length} SIP users`);
+    
+    // Auto-reload
+    const reloadResult = await reloadAsteriskConfig('pjsip');
+    return reloadResult;
+  } catch (error) {
+    console.error('Error writing SIP users config:', error);
+    throw error;
+  }
+}
+
+// Get all SIP users - reads from database
 app.get('/api/asterisk/sip-users', authenticateAdmin, async (req, res) => {
   try {
-    let result = await readAsteriskConfig('pjsip_users.conf');
-    if (!result.success) {
-      result = await readAsteriskConfig('pjsip.conf');
-    }
-    if (result.success) {
-      sipUsers = parsePjsipUsers(result.content);
-    }
+    const result = await db.query(
+      'SELECT id, username, extension, context, codecs, max_contacts, qualify_frequency, transport, template_type, callerid, voicemail, call_limit, is_active, notes, created_at, updated_at FROM sip_users ORDER BY created_at DESC'
+    );
+    res.json({ success: true, users: result.rows, count: result.rows.length });
+  } catch (error) {
+    console.error('Error fetching SIP users:', error);
+    res.status(500).json({ success: false, error: error.message, users: [] });
+  }
+});
 
-    const safeUsers = sipUsers.map(u => ({ ...u, password: '********' }));
-    res.json({ success: true, users: safeUsers, count: safeUsers.length });
+// Get specific SIP user
+app.get('/api/asterisk/sip-users/:username', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT id, username, extension, context, codecs, max_contacts, qualify_frequency, transport, template_type, callerid, voicemail, call_limit, is_active, notes, created_at, updated_at FROM sip_users WHERE username = $1',
+      [req.params.username]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+    res.json({ success: true, user: result.rows[0] });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Get specific SIP user
-app.get('/api/asterisk/sip-users/:username', authenticateAdmin, (req, res) => {
-  const user = sipUsers.find(u => u.username === req.params.username || u.name === req.params.username);
-  if (!user) {
-    return res.status(404).json({ success: false, error: 'User not found' });
-  }
-  res.json({ success: true, user: { ...user, password: '********' } });
-});
-
 // Create new SIP user
-app.post('/api/asterisk/sip-users', authenticateAdmin, (req, res) => {
+app.post('/api/asterisk/sip-users', authenticateAdmin, async (req, res) => {
   const { 
     username, 
-    password, 
-    context = 'default',
-    codecs = 'ulaw,alaw,g722',
-    transport = 'transport-udp',
-    callerid = '',
-    maxContacts = 5,
-    directMedia = false,
-    rtp_symmetric = true,
-    force_rport = true,
-    rewrite_contact = true
+    secret,
+    password,
+    extension,
+    context,
+    codecs,
+    max_contacts,
+    qualify_frequency,
+    transport,
+    template_type,
+    callerid,
+    voicemail,
+    call_limit,
+    notes
   } = req.body;
   
   if (!username) {
     return res.status(400).json({ success: false, error: 'Username required' });
   }
-  if (!password) {
-    return res.status(400).json({ success: false, error: 'Password required' });
+  if (!secret && !password) {
+    return res.status(400).json({ success: false, error: 'Secret/password required' });
   }
-  if (sipUsers.find(u => u.username === username || u.name === username)) {
-    return res.status(400).json({ success: false, error: 'User already exists' });
+  if (!extension) {
+    return res.status(400).json({ success: false, error: 'Extension required' });
   }
   
-  const user = {
-    name: username,
-    username,
-    password,
-    context,
-    codecs,
-    transport,
-    callerid: callerid || `"${username}" <${username}>`,
-    maxContacts,
-    directMedia,
-    rtp_symmetric,
-    force_rport,
-    rewrite_contact,
-    enabled: true,
-    createdAt: new Date().toISOString()
-  };
-  
-  sipUsers.push(user);
-  // Persist to file (no reload) to survive restarts
   try {
-    ensurePjsipIncludes();
-    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
-    const userConfigs = generatePjsipUsers(sipUsers);
-    fs.writeFileSync(PJSIP_USERS, userConfigs, 'utf8');
-  } catch (err) {
-    console.warn('⚠️ Could not persist SIP users immediately:', err.message);
+    // Check if user already exists
+    const existing = await db.query('SELECT id FROM sip_users WHERE username = $1', [username]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ success: false, error: 'User already exists' });
+    }
+    
+    // Get template defaults
+    const templateType = template_type || 'basic_user';
+    const template = providerTemplates.user_templates?.[templateType] || {};
+    
+    // Insert into database
+    const result = await db.query(
+      `INSERT INTO sip_users (username, secret, extension, context, codecs, max_contacts, qualify_frequency, transport, template_type, callerid, voicemail, call_limit, notes, is_active) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) 
+       RETURNING id, username, extension, context, codecs, max_contacts, qualify_frequency, transport, template_type, callerid, voicemail, call_limit, is_active, notes, created_at, updated_at`,
+      [
+        username,
+        secret || password,
+        extension,
+        context || template.default_context || 'default',
+        codecs || template.default_codecs || 'ulaw,alaw',
+        max_contacts || template.default_max_contacts || 1,
+        qualify_frequency || 30,
+        transport || 'transport-udp',
+        templateType,
+        callerid || `${extension} <${extension}>`,
+        voicemail || '',
+        call_limit || template.default_call_limit || 5,
+        notes || '',
+        true
+      ]
+    );
+    
+    // Regenerate config file for all users
+    const allUsers = await db.query('SELECT * FROM sip_users WHERE is_active = true');
+    await writePJSIPUsersConfig(allUsers.rows);
+    
+    res.json({ success: true, user: result.rows[0], message: 'User created and applied to Asterisk' });
+  } catch (error) {
+    console.error('Error creating SIP user:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
-  res.json({ success: true, user: { ...user, password: '********' } });
 });
 
 // Update SIP user
-app.put('/api/asterisk/sip-users/:username', authenticateAdmin, (req, res) => {
-  const idx = sipUsers.findIndex(u => u.username === req.params.username || u.name === req.params.username);
-  if (idx === -1) {
-    return res.status(404).json({ success: false, error: 'User not found' });
-  }
-  
+app.put('/api/asterisk/sip-users/:username', authenticateAdmin, async (req, res) => {
   const updates = req.body;
-  const user = sipUsers[idx];
   
-  // Update allowed fields
-  if (updates.password) user.password = updates.password;
-  if (updates.context !== undefined) user.context = updates.context;
-  if (updates.codecs !== undefined) user.codecs = updates.codecs;
-  if (updates.transport !== undefined) user.transport = updates.transport;
-  if (updates.callerid !== undefined) user.callerid = updates.callerid;
-  if (updates.maxContacts !== undefined) user.maxContacts = updates.maxContacts;
-  if (updates.directMedia !== undefined) user.directMedia = updates.directMedia;
-  if (updates.rtp_symmetric !== undefined) user.rtp_symmetric = updates.rtp_symmetric;
-  if (updates.force_rport !== undefined) user.force_rport = updates.force_rport;
-  if (updates.rewrite_contact !== undefined) user.rewrite_contact = updates.rewrite_contact;
-  if (updates.enabled !== undefined) user.enabled = updates.enabled;
-  
-  user.updatedAt = new Date().toISOString();
-  // Persist to file (no reload)
   try {
-    ensurePjsipIncludes();
-    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
-    const userConfigs = generatePjsipUsers(sipUsers);
-    fs.writeFileSync(PJSIP_USERS, userConfigs, 'utf8');
-  } catch (err) {
-    console.warn('⚠️ Could not persist SIP users immediately:', err.message);
+    // Build dynamic update query
+    const fields = [];
+    const values = [];
+    let paramCount = 1;
+    
+    if (updates.secret !== undefined || updates.password !== undefined) {
+      fields.push(`secret = $${paramCount++}`);
+      values.push(updates.secret || updates.password);
+    }
+    if (updates.extension !== undefined) {
+      fields.push(`extension = $${paramCount++}`);
+      values.push(updates.extension);
+    }
+    if (updates.context !== undefined) {
+      fields.push(`context = $${paramCount++}`);
+      values.push(updates.context);
+    }
+    if (updates.codecs !== undefined) {
+      fields.push(`codecs = $${paramCount++}`);
+      values.push(updates.codecs);
+    }
+    if (updates.max_contacts !== undefined) {
+      fields.push(`max_contacts = $${paramCount++}`);
+      values.push(updates.max_contacts);
+    }
+    if (updates.qualify_frequency !== undefined) {
+      fields.push(`qualify_frequency = $${paramCount++}`);
+      values.push(updates.qualify_frequency);
+    }
+    if (updates.transport !== undefined) {
+      fields.push(`transport = $${paramCount++}`);
+      values.push(updates.transport);
+    }
+    if (updates.template_type !== undefined) {
+      fields.push(`template_type = $${paramCount++}`);
+      values.push(updates.template_type);
+    }
+    if (updates.callerid !== undefined) {
+      fields.push(`callerid = $${paramCount++}`);
+      values.push(updates.callerid);
+    }
+    if (updates.voicemail !== undefined) {
+      fields.push(`voicemail = $${paramCount++}`);
+      values.push(updates.voicemail);
+    }
+    if (updates.call_limit !== undefined) {
+      fields.push(`call_limit = $${paramCount++}`);
+      values.push(updates.call_limit);
+    }
+    if (updates.is_active !== undefined) {
+      fields.push(`is_active = $${paramCount++}`);
+      values.push(updates.is_active);
+    }
+    if (updates.notes !== undefined) {
+      fields.push(`notes = $${paramCount++}`);
+      values.push(updates.notes);
+    }
+    
+    if (fields.length === 0) {
+      return res.status(400).json({ success: false, error: 'No fields to update' });
+    }
+    
+    values.push(req.params.username);
+    const query = `UPDATE sip_users SET ${fields.join(', ')} WHERE username = $${paramCount} RETURNING id, username, extension, context, codecs, max_contacts, qualify_frequency, transport, template_type, callerid, voicemail, call_limit, is_active, notes, created_at, updated_at`;
+    
+    const result = await db.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+    
+    // Regenerate config for all active users
+    const allUsers = await db.query('SELECT * FROM sip_users WHERE is_active = true');
+    await writePJSIPUsersConfig(allUsers.rows);
+    
+    res.json({ success: true, user: result.rows[0], message: 'User updated and applied to Asterisk' });
+  } catch (error) {
+    console.error('Error updating SIP user:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
-
-  res.json({ success: true, user: { ...user, password: '********' } });
 });
 
 // Delete SIP user
-app.delete('/api/asterisk/sip-users/:username', authenticateAdmin, (req, res) => {
-  const before = sipUsers.length;
-  sipUsers = sipUsers.filter(u => u.username !== req.params.username && u.name !== req.params.username);
-  // Persist deletion
+app.delete('/api/asterisk/sip-users/:username', authenticateAdmin, async (req, res) => {
   try {
-    ensurePjsipIncludes();
-    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
-    const userConfigs = generatePjsipUsers(sipUsers);
-    fs.writeFileSync(PJSIP_USERS, userConfigs, 'utf8');
-  } catch (err) {
-    console.warn('⚠️ Could not persist SIP users immediately:', err.message);
+    const result = await db.query(
+      'DELETE FROM sip_users WHERE username = $1 RETURNING *',
+      [req.params.username]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({ success: false, removed: false, error: 'User not found' });
+    }
+    
+    // Regenerate config for remaining active users
+    const allUsers = await db.query('SELECT * FROM sip_users WHERE is_active = true');
+    await writePJSIPUsersConfig(allUsers.rows);
+    
+    res.json({ success: true, removed: true, message: 'User deleted and changes applied to Asterisk' });
+  } catch (error) {
+    console.error('Error deleting SIP user:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
-  res.json({ success: true, removed: before !== sipUsers.length });
 });
 
-// Apply SIP users to Asterisk - writes to pjsip_users.conf
+// Apply SIP users to Asterisk - now just triggers regeneration (kept for backward compatibility)
 app.post('/api/asterisk/sip-users/apply', authenticateAdmin, async (req, res) => {
   try {
-    ensurePjsipIncludes();
-    const PJSIP_USERS = path.join(ASTERISK_CONFIG_DIR, 'pjsip_users.conf');
-
-    const userConfigs = sipUsers.map(user => {
-      const name = user.name || user.username;
-      const password = user.password || 'changeme';
-      const context = user.context || 'default';
-      const transport = user.transport || 'transport-udp';
-      const codecs = user.codecs || 'ulaw,alaw,g722';
-      const callerid = user.callerid || `"${name}" <${name}>`;
-      const aorName = `${name}-aor`;
-      return `; === SIP USER: ${name} ===
-[${name}](endpoint-template)
-type=endpoint
-context=${context}
-disallow=all
-allow=${codecs}
-auth=${name}-auth
-aors=${aorName}
-callerid=${callerid}
-transport=${transport}
-direct_media=no
-rtp_symmetric=yes
-force_rport=yes
-rewrite_contact=yes
-
-[${name}-auth]
-type=auth
-auth_type=userpass
-username=${name}
-password=${password}
-
-[${aorName}]
-type=aor
-max_contacts=5
-remove_existing=yes
-
-; === END SIP USER: ${name} ===
-`;
-    }).join('\n');
-
-    const content = `; PJSIP Users - Generated by Asterisk GUI\n${userConfigs}\n`;
-    fs.writeFileSync(PJSIP_USERS, content, 'utf8');
-    console.log(`✅ Updated pjsip_users.conf with ${sipUsers.length} SIP users`);
-
-    const reloadResult = await reloadAsteriskConfig('pjsip');
+    const allUsers = await db.query('SELECT * FROM sip_users WHERE is_active = true');
+    const reloadResult = await writePJSIPUsersConfig(allUsers.rows);
+    
     res.json({ 
       success: true, 
-      message: `${sipUsers.length} SIP users applied successfully`,
+      message: `${allUsers.rows.length} SIP users applied successfully`,
       reload: reloadResult 
     });
   } catch (error) {

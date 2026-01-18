@@ -1,9 +1,10 @@
 {
   "_info": {
-    "description": "PBX-Quality SIP Trunk Provider Templates",
-    "version": "2.0",
+    "description": "PBX-Quality SIP Trunk & User Templates",
+    "version": "3.0",
     "auth_types": ["credential", "ip"],
-    "supported_providers": ["telnyx", "signalwire", "twilio", "vonage", "bandwidth", "voipms", "flowroute", "plivo", "didlogic", "voxbone", "custom_credential", "custom_ip"]
+    "supported_providers": ["telnyx", "signalwire", "twilio", "vonage", "bandwidth", "voipms", "flowroute", "plivo", "didlogic", "voxbone", "custom_credential", "custom_ip"],
+    "user_templates": ["basic_user", "advanced_user", "mobile_user", "webrtc_user"]
   },
   
   "telnyx": {
@@ -149,5 +150,61 @@
   
   "transport": {
     "template": "[transport-udp]\ntype=transport\nprotocol=udp\nbind=0.0.0.0:{port}\nexternal_signaling_address={external_ip}\nexternal_media_address={external_ip}\nlocal_net={local_net}\nallow_reload=yes\ntos=cs3\ncos=3\n"
+  },
+  
+  "user_templates": {
+    "basic_user": {
+      "display_name": "Basic SIP User",
+      "description": "Standard SIP endpoint for desk phones",
+      "required_fields": ["username", "secret", "extension"],
+      "optional_fields": ["context", "codecs", "max_contacts"],
+      "default_context": "default",
+      "default_codecs": "ulaw,alaw",
+      "default_max_contacts": 1,
+      "auth": "[{username}]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={secret}\n",
+      "aor": "[{username}]\ntype=aor\nmax_contacts={max_contacts}\nremove_existing=yes\nqualify_frequency=30\n",
+      "endpoint": "[{username}]\ntype=endpoint\ntransport=transport-udp\ncontext={context}\ndisallow=all\nallow={codecs}\nauth={username}\naors={username}\ndirect_media=no\nrtp_symmetric=yes\nforce_rport=yes\nrewrite_contact=yes\nice_support=no\ncallerid={extension} <{extension}>\n"
+    },
+    
+    "advanced_user": {
+      "display_name": "Advanced SIP User",
+      "description": "Enhanced user with T.38 fax, video, and quality monitoring",
+      "required_fields": ["username", "secret", "extension"],
+      "optional_fields": ["context", "codecs", "max_contacts", "voicemail", "call_limit"],
+      "default_context": "default",
+      "default_codecs": "ulaw,alaw,g722",
+      "default_max_contacts": 3,
+      "default_voicemail": "",
+      "default_call_limit": 5,
+      "auth": "[{username}]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={secret}\n",
+      "aor": "[{username}]\ntype=aor\nmax_contacts={max_contacts}\nremove_existing=yes\nqualify_frequency=30\nqualify_timeout=3.0\nauthenticate_qualify=yes\n",
+      "endpoint": "[{username}]\ntype=endpoint\ntransport=transport-udp\ncontext={context}\ndisallow=all\nallow={codecs}\nauth={username}\naors={username}\ndirect_media=no\nrtp_symmetric=yes\nforce_rport=yes\nrewrite_contact=yes\nice_support=no\ncallerid={extension} <{extension}>\nt38_udptl=yes\nt38_udptl_ec=redundancy\nt38_udptl_maxdatagram=400\ndtmf_mode=rfc4733\nsend_pai=yes\nsend_rpid=yes\ntrust_id_inbound=yes\nmailboxes={voicemail}@default\ndevice_state_busy_at={call_limit}\n"
+    },
+    
+    "mobile_user": {
+      "display_name": "Mobile SIP User",
+      "description": "Optimized for mobile softphones with NAT traversal",
+      "required_fields": ["username", "secret", "extension"],
+      "optional_fields": ["context", "codecs", "max_contacts"],
+      "default_context": "default",
+      "default_codecs": "opus,ulaw,alaw",
+      "default_max_contacts": 5,
+      "auth": "[{username}]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={secret}\n",
+      "aor": "[{username}]\ntype=aor\nmax_contacts={max_contacts}\nremove_existing=no\nqualify_frequency=60\nmaximum_expiration=7200\nminimum_expiration=60\ndefault_expiration=3600\n",
+      "endpoint": "[{username}]\ntype=endpoint\ntransport=transport-udp\ncontext={context}\ndisallow=all\nallow={codecs}\nauth={username}\naors={username}\ndirect_media=no\nrtp_symmetric=yes\nforce_rport=yes\nrewrite_contact=yes\nice_support=yes\nuse_avpf=yes\nmedia_use_received_transport=yes\nrtcp_mux=yes\ncallerid={extension} <{extension}>\ndtmf_mode=rfc4733\nallow_subscribe=yes\nsub_min_expiry=60\n"
+    },
+    
+    "webrtc_user": {
+      "display_name": "WebRTC User",
+      "description": "WebRTC-enabled user for browser-based calling",
+      "required_fields": ["username", "secret", "extension"],
+      "optional_fields": ["context", "codecs", "max_contacts"],
+      "default_context": "default",
+      "default_codecs": "opus,ulaw,vp8,h264",
+      "default_max_contacts": 3,
+      "auth": "[{username}]\ntype=auth\nauth_type=userpass\nusername={username}\npassword={secret}\n",
+      "aor": "[{username}]\ntype=aor\nmax_contacts={max_contacts}\nremove_existing=yes\nqualify_frequency=30\n",
+      "endpoint": "[{username}]\ntype=endpoint\ntransport=transport-wss\ncontext={context}\ndisallow=all\nallow={codecs}\nauth={username}\naors={username}\nwebrtc=yes\nuse_avpf=yes\nmedia_encryption=dtls\ndtls_verify=fingerprint\ndtls_rekey=0\ndtls_cert_file=/etc/asterisk/keys/asterisk.pem\ndtls_private_key=/etc/asterisk/keys/asterisk.pem\ndtls_ca_file=/etc/asterisk/keys/ca.crt\ndtls_setup=actpass\nice_support=yes\nrtcp_mux=yes\nrtp_symmetric=yes\nforce_rport=yes\nrewrite_contact=yes\ncallerid={extension} <{extension}>\ndtmf_mode=rfc4733\n"
+    }
   }
 }

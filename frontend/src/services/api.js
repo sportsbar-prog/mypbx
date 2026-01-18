@@ -12,7 +12,7 @@ const apiClient = axios.create({
 // Add request interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    // Get token from localStorage and add to headers
+    // Get token fviterom localStorage and add to headers
     const token = localStorage.getItem('adminToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -78,6 +78,28 @@ export const api = {
   // Endpoints
   getEndpoints: () => apiClient.get('/endpoints'),
   getEndpoint: (tech, resource) => apiClient.get(`/endpoints/${tech}/${resource}`),
+  
+  // Provider Templates
+  getProviders: () => apiClient.get('/providers'),
+  getProviderDetails: (provider) => apiClient.get(`/providers/${provider}/details`),
+  
+  // User Templates
+  getUserTemplates: () => apiClient.get('/user-templates'),
+  getUserTemplateDetails: (template) => apiClient.get(`/user-templates/${template}`),
+  
+  // Trunks (with template support)
+  getTrunks: () => apiClient.get('/trunks'),
+  createTrunk: (data) => apiClient.post('/trunks', data),
+  updateTrunk: (trunkName, data) => apiClient.put(`/trunks/${trunkName}`, data),
+  deleteTrunk: (trunkName) => apiClient.delete(`/trunks/${trunkName}`),
+  
+  // SIP Users (with template support)
+  getSipUsers: () => apiClient.get('/asterisk/sip-users'),
+  getSipUser: (username) => apiClient.get(`/asterisk/sip-users/${username}`),
+  createSipUser: (data) => apiClient.post('/asterisk/sip-users', data),
+  updateSipUser: (username, data) => apiClient.put(`/asterisk/sip-users/${username}`, data),
+  deleteSipUser: (username) => apiClient.delete(`/asterisk/sip-users/${username}`),
+  applySipUsers: () => apiClient.post('/asterisk/sip-users/apply'),
   
   // Admin - API Keys Management
   get: (url, config) => apiClient.get(url, config),
