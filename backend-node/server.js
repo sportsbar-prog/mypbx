@@ -3205,79 +3205,62 @@ app.post('/api/asterisk/dialplan/apply', authenticateAdmin, async (req, res) => 
 // In-memory SIP users storage
 let sipUsers = [];
 
-// Parse SIP users from pjsip.conf (expects blocks marked with ; === SIP USER: ... ===)
+// Parse SIP users from pjsip.conf
+// Supports both our marked blocks (; === SIP USER: ...) and generic endpoint/auth/aor sections
 function parsePjsipUsers(content) {
   const users = [];
-  const lines = content.split('\n');
+  const sections = {};
   let current = null;
-  let section = '';
 
-  for (const raw of lines) {
+  // First pass: build section map
+  for (const raw of content.split('\n')) {
     const line = raw.trim();
-    if (!line) continue;
+    if (!line || line.startsWith(';')) continue;
 
-    if (line.startsWith('; === SIP USER:')) {
-      // Begin new user block
-      const name = line.replace('; === SIP USER:', '').replace('===', '').trim();
-      current = {
-        name,
-        username: name,
-        context: 'default',
-        codecs: 'ulaw,alaw,g722',
-        transport: 'transport-udp',
-        callerid: `"${name}" <${name}>`,
-        maxContacts: 5,
-        password: '',
-      };
-      section = '';
-      continue;
-    }
-
-    if (line.startsWith('; === END SIP USER')) {
-      if (current) users.push(current);
-      current = null;
-      section = '';
-      continue;
-    }
-
-    // Track which section we're in
     const sectionMatch = line.match(/^\[([^\]]+)\]/);
     if (sectionMatch) {
-      const name = sectionMatch[1];
-      if (current && name === `${current.name}`) section = 'endpoint';
-      else if (current && name === `${current.name}-auth`) section = 'auth';
-      else if (current && name === `${current.name}`) section = 'aor';
-      else section = '';
+      current = sectionMatch[1];
+      sections[current] = sections[current] || {};
       continue;
     }
 
-    if (!current) continue;
-
     const kv = line.match(/^([^=]+)=(.*)$/);
-    if (!kv) continue;
-    const key = kv[1].trim();
-    const value = kv[2].trim();
-
-    if (section === 'endpoint') {
-      if (key === 'context') current.context = value;
-      if (key === 'allow') current.codecs = value;
-      if (key === 'transport') current.transport = value;
-      if (key === 'callerid') current.callerid = value;
-      if (key === 'direct_media') current.directMedia = value === 'yes';
-      if (key === 'rtp_symmetric') current.rtp_symmetric = value === 'yes';
-      if (key === 'force_rport') current.force_rport = value === 'yes';
-      if (key === 'rewrite_contact') current.rewrite_contact = value === 'yes';
+    if (kv && current) {
+      const key = kv[1].trim();
+      const val = kv[2].trim();
+      sections[current][key] = val;
     }
+  }
 
-    if (section === 'auth') {
-      if (key === 'password') current.password = value;
-      if (key === 'username') current.username = value;
-    }
+  // Helper to get boolean yes/no
+  const toBool = (v) => (v === 'yes' || v === 'true');
 
-    if (section === 'aor') {
-      if (key === 'max_contacts') current.maxContacts = parseInt(value) || 5;
-      if (key === 'qualify_frequency') current.qualifyFrequency = parseInt(value) || undefined;
-    }
+  // Determine user blocks
+  for (const name of Object.keys(sections)) {
+    const sec = sections[name];
+    if ((sec.type || '').toLowerCase() !== 'endpoint') continue;
+
+    const authName = sec.auth || `${name}-auth`;
+    const aorName = (sec.aors || sec.aor || name).split(',')[0].trim();
+
+    const auth = sections[authName] || {};
+    const aor = sections[aorName] || {};
+
+    users.push({
+      name,
+      username: auth.username || name,
+      password: auth.password || '',
+      context: sec.context || 'default',
+      codecs: sec.allow || 'ulaw,alaw,g722',
+      transport: sec.transport || 'transport-udp',
+      callerid: sec.callerid || `"${name}" <${name}>`,
+      maxContacts: parseInt(aor.max_contacts || '5') || 5,
+      qualifyFrequency: aor.qualify_frequency ? parseInt(aor.qualify_frequency) : undefined,
+      directMedia: sec.direct_media ? toBool(sec.direct_media) : undefined,
+      rtp_symmetric: sec.rtp_symmetric ? toBool(sec.rtp_symmetric) : undefined,
+      force_rport: sec.force_rport ? toBool(sec.force_rport) : undefined,
+      rewrite_contact: sec.rewrite_contact ? toBool(sec.rewrite_contact) : undefined,
+    });
   }
 
   return users;
