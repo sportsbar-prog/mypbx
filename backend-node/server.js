@@ -3624,13 +3624,18 @@ app.post('/api/asterisk/sip-users', authenticateAdmin, async (req, res) => {
   } = req.body;
   
   if (!username) {
-    return res.status(400).json({ success: false, error: 'Username required' });
+    return res.status(400).json({ success: false, error: 'Username is required' });
   }
   if (!secret && !password) {
-    return res.status(400).json({ success: false, error: 'Secret/password required' });
+    return res.status(400).json({ success: false, error: 'Secret (password) is required' });
   }
   if (!extension) {
-    return res.status(400).json({ success: false, error: 'Extension required' });
+    return res.status(400).json({ success: false, error: 'Extension is required' });
+  }
+  
+  // Validate that values are not just whitespace
+  if (!username.trim() || (!secret && !password) || !extension.trim()) {
+    return res.status(400).json({ success: false, error: 'Required fields cannot be empty' });
   }
   
   try {

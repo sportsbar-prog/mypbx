@@ -75,9 +75,25 @@ function SipUsers() {
   const handleSave = async () => {
     const { mode, data } = dialog;
     try {
+      // Map old field names to new ones
+      const payload = {
+        username: data.username,
+        secret: data.password || data.secret, // Map password to secret
+        extension: data.extension || data.username, // Use username as extension if not provided
+        context: data.context,
+        codecs: data.codecs,
+        transport: data.transport,
+        callerid: data.callerid,
+        template_type: data.template_type || 'basic_user',
+        max_contacts: data.maxContacts || data.max_contacts,
+        voicemail: data.voicemail || '',
+        call_limit: data.call_limit || 5,
+        notes: data.notes || ''
+      };
+      
       const res = mode === 'add'
-        ? await api.post('/asterisk/sip-users', data)
-        : await api.put(`/asterisk/sip-users/${dialog.originalUsername}`, data);
+        ? await api.post('/asterisk/sip-users', payload)
+        : await api.put(`/asterisk/sip-users/${dialog.originalUsername}`, payload);
       
       if (res.data.success) {
         setSuccess(mode === 'add' ? 'SIP user created' : 'SIP user updated');
@@ -306,6 +322,16 @@ Display name: ${user.callerid || user.username}
                 disabled={dialog.mode === 'edit'}
                 placeholder="e.g., 1001, john.doe"
                 helperText="SIP extension/username"
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <TextField
+                fullWidth
+                label="Extension (E.164)"
+                value={dialog.data.extension || dialog.data.username || ''}
+                onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, extension: e.target.value } })}
+                placeholder="e.g., 1001, +15551234567"
+                helperText="Phone number or extension"
               />
             </Grid>
             <Grid item xs={6}>
