@@ -2779,13 +2779,13 @@ async function reloadAsteriskConfig(module = 'all') {
     
     // Build the reload command based on module
     if (module === 'all') {
-      reloadCmd = 'core reload';
+      reloadCmd = 'reload';
     } else if (module === 'pjsip') {
       reloadCmd = 'pjsip reload';
     } else if (module === 'dialplan') {
       reloadCmd = 'dialplan reload';
     } else if (module === 'module') {
-      reloadCmd = 'module reload';
+      reloadCmd = 'core show modules';
     } else if (module === 'sip') {
       reloadCmd = 'sip reload';
     } else if (module === 'voicemail') {

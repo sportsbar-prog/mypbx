@@ -29,13 +29,13 @@ const QUICK_COMMANDS = [
 ];
 
 const RELOAD_MODULES = [
-  { value: 'all', label: 'All (core reload)' },
+  { value: 'all', label: 'All (reload)' },
   { value: 'pjsip', label: 'PJSIP' },
   { value: 'dialplan', label: 'Dialplan' },
-  { value: 'module', label: 'Modules' },
   { value: 'features', label: 'Features' },
   { value: 'cdr', label: 'CDR' },
-  { value: 'logger', label: 'Logger' }
+  { value: 'logger', label: 'Logger' },
+  { value: 'voicemail', label: 'Voicemail' }
 ];
 
 function AsteriskControl() {
