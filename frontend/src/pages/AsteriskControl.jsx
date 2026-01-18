@@ -29,7 +29,6 @@ const QUICK_COMMANDS = [
 ];
 
 const RELOAD_MODULES = [
-  { value: 'all', label: 'All (reload)' },
   { value: 'pjsip', label: 'PJSIP' },
   { value: 'dialplan', label: 'Dialplan' },
   { value: 'features', label: 'Features' },
@@ -44,7 +43,7 @@ function AsteriskControl() {
   const [command, setCommand] = useState('');
   const [output, setOutput] = useState('');
   const [executing, setExecuting] = useState(false);
-  const [selectedModule, setSelectedModule] = useState('all');
+  const [selectedModule, setSelectedModule] = useState('pjsip');
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   
