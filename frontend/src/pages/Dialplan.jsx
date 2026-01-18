@@ -11,8 +11,7 @@ import {
   ExpandMore as ExpandMoreIcon, Save as SaveIcon, Refresh as RefreshIcon,
   PlayArrow as ApplyIcon, Code as CodeIcon, ContentCopy as CopyIcon
 } from '@mui/icons-material';
-
-const API_URL = 'http://localhost:3000';
+import { api } from '../services/api';
 
 // Common Asterisk applications
 const COMMON_APPS = [
@@ -47,21 +46,17 @@ function Dialplan() {
   const [extensionDialog, setExtensionDialog] = useState({ open: false, contextName: '', data: {} });
   const [rawDialog, setRawDialog] = useState({ open: false, content: '' });
   
-  const token = localStorage.getItem('adminToken');
-  const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-
   const fetchContexts = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/dialplan`, { headers });
-      const data = await res.json();
-      if (data.success) {
-        setContexts(data.contexts || []);
+      const res = await api.get('/asterisk/dialplan');
+      if (res.data.success) {
+        setContexts(res.data.contexts || []);
       } else {
-        setError(data.error || 'Failed to load dialplan');
+        setError(res.data.error || 'Failed to load dialplan');
       }
     } catch (err) {
-      setError('Failed to connect to server');
+      setError(`Failed to connect to server: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -71,116 +66,89 @@ function Dialplan() {
 
   const handleAddContext = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/dialplan`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(contextDialog.data)
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await api.post('/asterisk/dialplan', contextDialog.data);
+      if (res.data.success) {
         setSuccess('Context created successfully');
         setContextDialog({ open: false, mode: 'add', data: {} });
         fetchContexts();
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Failed to create context');
+      setError(`Failed to create context: ${err.message}`);
     }
   };
 
   const handleUpdateContext = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/dialplan/${contextDialog.originalName}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(contextDialog.data)
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await api.put(`/asterisk/dialplan/${contextDialog.originalName}`, contextDialog.data);
+      if (res.data.success) {
         setSuccess('Context updated successfully');
         setContextDialog({ open: false, mode: 'add', data: {} });
         fetchContexts();
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Failed to update context');
+      setError(`Failed to update context: ${err.message}`);
     }
   };
 
   const handleDeleteContext = async (name) => {
     if (!window.confirm(`Delete context [${name}]?`)) return;
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/dialplan/${name}`, {
-        method: 'DELETE',
-        headers
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await api.delete(`/asterisk/dialplan/${name}`);
+      if (res.data.success) {
         setSuccess('Context deleted');
         fetchContexts();
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Failed to delete context');
+      setError(`Failed to delete context: ${err.message}`);
     }
   };
 
   const handleAddExtension = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/dialplan/${extensionDialog.contextName}/extension`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(extensionDialog.data)
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await api.post(`/asterisk/dialplan/${extensionDialog.contextName}/extension`, extensionDialog.data);
+      if (res.data.success) {
         setSuccess('Extension added');
         setExtensionDialog({ open: false, contextName: '', data: {} });
         fetchContexts();
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Failed to add extension');
+      setError(`Failed to add extension: ${err.message}`);
     }
   };
 
   const handleDeleteExtension = async (contextName, index) => {
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/dialplan/${contextName}/extension/${index}`, {
-        method: 'DELETE',
-        headers
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await api.delete(`/asterisk/dialplan/${contextName}/extension/${index}`);
+      if (res.data.success) {
         setSuccess('Extension removed');
         fetchContexts();
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Failed to remove extension');
+      setError(`Failed to remove extension: ${err.message}`);
     }
   };
 
   const handleApplyDialplan = async () => {
     if (!window.confirm('Apply dialplan to Asterisk? This will overwrite extensions.conf')) return;
     try {
-      const res = await fetch(`${API_URL}/api/asterisk/dialplan/apply`, {
-        method: 'POST',
-        headers
-      });
-      const data = await res.json();
-      if (data.success) {
+      const res = await api.post('/asterisk/dialplan/apply', {});
+      if (res.data.success) {
         setSuccess('Dialplan applied to Asterisk');
       } else {
-        setError(data.error);
+        setError(res.data.error);
       }
     } catch (err) {
-      setError('Failed to apply dialplan');
+      setError(`Failed to apply dialplan: ${err.message}`);
     }
   };
 
