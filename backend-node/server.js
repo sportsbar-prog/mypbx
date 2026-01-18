@@ -34,10 +34,24 @@ const db = new Pool({
 });
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+}));
 app.use(morgan('combined'));
-app.use(cors());
-app.use(express.json());
+
+// CORS - Allow all origins for development and production
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
+}));
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
 // Removed: app.use(express.static('public')); - Frontend is now on port 5173
 
 // Active calls tracking
