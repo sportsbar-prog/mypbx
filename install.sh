@@ -68,7 +68,7 @@ PACKAGES=(
     "build-essential" "curl" "wget" "git" "libssl-dev" "libncurses5-dev"
     "libsqlite3-dev" "libjansson-dev" "libxml2-dev" "libpq-dev" "libgsm1-dev"
     "libtiff-dev" "libasound2-dev" "sox" "libc-client2007e-dev" "sqlite3"
-    "uuid-dev" "flex" "bison" "postgresql" "postgresql-contrib" "nodejs" "npm"
+    "uuid-dev" "flex" "bison" "postgresql" "postgresql-contrib" "nodejs"
     "asterisk" "asterisk-dev" "asterisk-config"
 )
 
