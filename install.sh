@@ -81,7 +81,12 @@ for pkg in "${PACKAGES[@]}"; do
 done
 
 if [ ! -z "$INSTALL_LIST" ]; then
-    apt-get install -y $INSTALL_LIST > /dev/null 2>&1
+    echo "Installing packages: $INSTALL_LIST (this may take 5-10 minutes)..."
+    apt-get install -y $INSTALL_LIST
+    if [ $? -ne 0 ]; then
+        print_error "Failed to install dependencies"
+        exit 1
+    fi
 fi
 
 print_success "All dependencies installed"
@@ -92,13 +97,19 @@ print_success "All dependencies installed"
 print_step "Step 3/10: Setting up PostgreSQL..."
 
 # Start PostgreSQL
-systemctl start postgresql > /dev/null 2>&1 || true
+echo "Starting PostgreSQL service..."
+systemctl start postgresql 2>&1 || true
 sleep 3
 
 # Wait for PostgreSQL to be ready
+echo "Waiting for PostgreSQL to be ready..."
 for i in {1..30}; do
     if sudo -u postgres psql -c "SELECT 1" > /dev/null 2>&1; then
+        print_success "PostgreSQL is ready"
         break
+    fi
+    if [ $i -eq 30 ]; then
+        print_warning "PostgreSQL took longer than expected to start"
     fi
     sleep 1
 done
@@ -316,7 +327,7 @@ fi
 # ============================================================================
 # STEP 5: INSTALL BACKEND DEPENDENCIES
 # ============================================================================
-print_step "Step 5/10: Installing backend dependencies..."
+print_step "Step 5/10: Installing backend dependencies (this may take 2-3 minutes)..."
 
 if [ ! -d "$BACKEND_DIR" ]; then
     print_error "Backend directory not found: $BACKEND_DIR"
@@ -327,14 +338,14 @@ cd "$BACKEND_DIR"
 
 # Clean and reinstall
 rm -rf node_modules package-lock.json > /dev/null 2>&1 || true
-npm install > /dev/null 2>&1
-
-if [ -d "node_modules" ]; then
-    print_success "Backend dependencies installed"
-else
+echo "Running npm install for backend..."
+npm install
+if [ $? -ne 0 ]; then
     print_error "Failed to install backend dependencies"
     exit 1
 fi
+
+print_success "Backend dependencies installed"
 
 # Generate bcrypt hash and create admin user
 print_step "Creating admin user with bcrypt hash..."
@@ -349,7 +360,7 @@ print_success "Admin user created (username: admin, password: admin123)"
 # ============================================================================
 # STEP 6: INSTALL FRONTEND DEPENDENCIES
 # ============================================================================
-print_step "Step 6/10: Installing frontend dependencies..."
+print_step "Step 6/10: Installing frontend dependencies (this may take 2-3 minutes)..."
 
 if [ ! -d "$FRONTEND_DIR" ]; then
     print_error "Frontend directory not found: $FRONTEND_DIR"
@@ -360,14 +371,14 @@ cd "$FRONTEND_DIR"
 
 # Clean and reinstall
 rm -rf node_modules package-lock.json > /dev/null 2>&1 || true
-npm install > /dev/null 2>&1
-
-if [ -d "node_modules" ]; then
-    print_success "Frontend dependencies installed"
-else
+echo "Running npm install for frontend..."
+npm install
+if [ $? -ne 0 ]; then
     print_error "Failed to install frontend dependencies"
     exit 1
 fi
+
+print_success "Frontend dependencies installed"
 
 # Create frontend .env file with server IP
 print_step "Configuring frontend API endpoint..."
