@@ -82,7 +82,8 @@ done
 
 if [ ! -z "$INSTALL_LIST" ]; then
     echo "Installing packages: $INSTALL_LIST (this may take 5-10 minutes)..."
-    apt-get install -y $INSTALL_LIST
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y -o Dpkg::Options::="--force-confnew" $INSTALL_LIST
     if [ $? -ne 0 ]; then
         print_error "Failed to install dependencies"
         exit 1
