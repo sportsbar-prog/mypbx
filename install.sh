@@ -30,6 +30,10 @@ print_success() {
     echo -e "${GREEN}✓${NC} $1"
 }
 
+print_warning() {
+    echo -e "${YELLOW}⚠${NC}  $1"
+}
+
 print_error() {
     echo -e "${RED}✗${NC} $1"
 }
@@ -115,7 +119,7 @@ SQL_EOF
 
 # Create user and grant privileges
 sudo -u postgres psql > /dev/null 2>&1 << 'SQL_EOF'
-CREATE USER ari_user WITH ENCRYPTED PASSWORD 'change_me';
+CREATE USER ari_user WITH ENCRYPTED PASSWORD 'mypass';
 ALTER ROLE ari_user CREATEDB;
 GRANT ALL PRIVILEGES ON DATABASE ari_api TO ari_user;
 SQL_EOF
@@ -167,7 +171,7 @@ if [ -f "$BACKEND_DIR/database-schema.sql" ]; then
 fi
 
 # Verify connection with new user
-if PGPASSWORD=change_me sudo -u postgres psql -h localhost -U ari_user -d ari_api -c "SELECT 1" > /dev/null 2>&1; then
+if PGPASSWORD=mypass sudo -u postgres psql -h localhost -U ari_user -d ari_api -c "SELECT 1" > /dev/null 2>&1; then
     print_success "PostgreSQL configured and running"
 else
     print_error "PostgreSQL authentication failed - checking configuration..."
@@ -596,7 +600,7 @@ echo "DATABASE CREDENTIALS:"
 echo "────────────────────────────────────────────────────────"
 echo -e "${CYAN}Database:${NC}   ari_api"
 echo -e "${CYAN}User:${NC}       ari_user"
-echo -e "${CYAN}Password:${NC}   change_me"
+echo -e "${CYAN}Password:${NC}   mypass"
 echo ""
 
 echo "RUNNING SERVICES:"

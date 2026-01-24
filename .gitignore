@@ -34,3 +34,15 @@ Thumbs.db
 # Asterisk specific
 /var/spool/asterisk/
 /var/log/asterisk/
+# Test files
+test-*.sh
+test-*.js
+test_*.js
+backend.log
+frontend.log
+server.log
+
+# Unwanted/erroneous files (from failed commands)
+backend-node/2&1*
+backend-node/*Out-String*
+backend-node/l\ bash
