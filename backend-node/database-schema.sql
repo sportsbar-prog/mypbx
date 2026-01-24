@@ -145,6 +145,34 @@ CREATE TABLE IF NOT EXISTS sip_users (
     CONSTRAINT valid_template_type CHECK (template_type IN ('basic_user', 'advanced_user', 'mobile_user', 'webrtc_user'))
 );
 
+-- ============== TRIGGER FUNCTIONS ==============
+
+-- Create function to automatically update updated_at column
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============== TRIGGERS ==============
+
+-- Create triggers for updated_at on api_keys
+CREATE TRIGGER update_api_keys_updated_at 
+BEFORE UPDATE ON api_keys
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Create triggers for updated_at on sip_trunks
+CREATE TRIGGER update_sip_trunks_updated_at 
+BEFORE UPDATE ON sip_trunks
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Create triggers for updated_at on sip_users
+CREATE TRIGGER update_sip_users_updated_at 
+BEFORE UPDATE ON sip_users
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ============== INDEXES ==============
 
 CREATE INDEX idx_admin_sessions_token ON admin_sessions(session_token);

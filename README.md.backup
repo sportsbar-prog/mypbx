@@ -1,0 +1,715 @@
+# Asterisk PBX Management System
+
+![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
+![Version](https://img.shields.io/badge/Version-3.0.0-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+Modern web-based management interface for Asterisk PBX with template-based SIP configuration, real-time monitoring, call control, and comprehensive analytics.
+
+## 🚀 Features
+
+### SIP Management
+- ✅ **Template-Based Configuration** - Pre-built templates for users and trunks
+- ✅ **12+ Provider Templates** - Telnyx, Twilio, SignalWire, Vonage, Bandwidth, VoIP.ms, Flowroute, Plivo
+- ✅ **Auto PJSIP Generation** - Automatic config file creation and reload
+- ✅ **Database Persistence** - PostgreSQL backend with full CRUD operations
+- ✅ **Trunk Status Monitoring** - Real-time registration status from Asterisk
+- ✅ **Assign/Unassign Trunks** - Control which trunks are active for routing
+
+### Call Control & Monitoring
+- ✅ **Real-Time Endpoints** - Live SIP endpoint monitoring
+- ✅ **Active Channels** - See all active calls
+- ✅ **Call History** - Complete call logs with analytics
+- ✅ **Queue Management** - Create and manage call queues with persistence
+- ✅ **Bridge Control** - Conference and call bridging
+
+### Administration
+- ✅ **Admin Dashboard** - System statistics and overview
+- ✅ **JWT Authentication** - Secure admin access
+- ✅ **API Keys** - Credit-based API access control
+- ✅ **Rate Limiting** - Protect against abuse
+- ✅ **CORS Configured** - Cross-origin support enabled
+
+## ⚡ One-Click Installation
+
+```bash
+# Clone repository
+git clone https://github.com/sportsbar-prog/mypbx.git
+cd mypbx
+
+# Make installer executable
+chmod +x install-all.sh
+
+# Run installation (requires sudo)
+sudo ./install-all.sh
+```
+
+### What Gets Installed
+
+The installer automatically:
+1. ✅ Checks and installs Node.js 18+ and PostgreSQL
+2. ✅ Creates secure database with random credentials
+3. ✅ Installs all backend and frontend dependencies
+4. ✅ Initializes database schema with all tables
+5. ✅ Creates admin user (admin/admin123)
+6. ✅ Sets up systemd services for auto-start
+7. ✅ Configures Asterisk ARI and HTTP interfaces
+8. ✅ Reloads Asterisk modules
+9. ✅ Displays access information and credentials
+
+**Installation takes ~5-10 minutes**
+
+## 🌐 Access After Installation
+
+- **Frontend**: http://YOUR_SERVER_IP:5173
+- **Backend API**: http://YOUR_SERVER_IP:3000  
+- **Default Login**: Username: `admin` | Password: `admin123`
+
+## 🎯 Quick Start Guide
+
+### 1. Create SIP Users
+
+Navigate to **Admin Panel → SIP Users**
+
+- Click "Add User"
+- Select template:
+  - `basic_user` - Standard extension
+  - `advanced_user` - Full features
+  - `mobile_user` - Mobile app optimized
+  - `webrtc_user` - WebRTC enabled
+- Enter username, password, extension
+- Save - config auto-generated and Asterisk reloaded
+
+### 2. Configure SIP Trunks
+
+Navigate to **Configuration → SIP Trunks**
+
+- Click "Add Trunk"
+- Select provider (Telnyx, Twilio, etc.)
+- Enter credentials from your provider
+- Save - PJSIP config created and reloaded
+- Click "Assign" to activate trunk for routing
+
+### 3. Verify Endpoints
+
+Navigate to **Endpoints**
+
+- Should show all configured users and trunks
+- Check status (Available/Unavailable)
+- Status updates from Asterisk in real-time
+
+### 4. Make Test Call
+
+Navigate to **Call Control**
+
+- Enter destination number
+- Click "Originate Call"
+- Monitor call status and controls
+
+## 🔧 Service Management
+
+```bash
+# Check service status
+sudo systemctl status asterisk-backend
+sudo systemctl status asterisk-frontend
+
+# View logs
+sudo journalctl -u asterisk-backend -f
+sudo journalctl -u asterisk-frontend -f
+
+# Restart services
+sudo systemctl restart asterisk-backend
+sudo systemctl restart asterisk-frontend
+
+# Stop services
+sudo systemctl stop asterisk-backend asterisk-frontend
+```
+
+## 📡 Network Ports
+
+### Required Ports
+| Port | Protocol | Service | Description |
+|------|----------|---------|-------------|
+| 5173 | TCP | Frontend | React web interface |
+| 3000 | TCP | Backend | Node.js API server |
+| 8088 | TCP | ARI | Asterisk REST Interface |
+| 5060 | UDP/TCP | SIP | SIP signaling |
+| 5061 | TCP | SIP-TLS | Encrypted SIP |
+| 8089 | TCP | WebRTC | WebSocket for WebRTC |
+| 10000-20000 | UDP | RTP | Media streams |
+
+### Configure Firewall
+
+```bash
+chmod +x configure-firewall.sh
+sudo ./configure-firewall.sh
+```
+
+See [PORTS.md](PORTS.md) for detailed port configuration and cloud provider examples.
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────┐
+│     React Frontend (Port 5173)          │
+│  - Material-UI Components               │
+│  - Real-time Updates                    │
+│  - WebSocket Support                    │
+└──────────────┬──────────────────────────┘
+               │ HTTP/WebSocket
+               ↓
+┌─────────────────────────────────────────┐
+│   Express Backend (Port 3000)           │
+│  - JWT Authentication                   │
+│  - CORS Enabled (All Origins)           │
+│  - 50MB Payload Limit                   │
+└──────┬───────────────┬──────────────────┘
+       │               │
+       ↓               ↓
+┌─────────────┐  ┌──────────────────────┐
+│ PostgreSQL  │  │  Asterisk + ARI      │
+│  Database   │  │  - PJSIP Stack       │
+│             │  │  - Call Control      │
+│  - Users    │  │  - Media Handling    │
+│  - Trunks   │  │  - Registration      │
+│  - Calls    │  │                      │
+│  - Queues   │  │  Port 8088 (ARI)     │
+└─────────────┘  └──────────────────────┘
+```
+
+## 📁 Project Structure
+
+```
+mypbx/
+├── backend-node/              # Node.js API Server
+│   ├── server.js             # Main server (4300+ lines)
+│   ├── database-schema.sql   # PostgreSQL schema
+│   ├── initialize-db.js      # DB initialization
+│   ├── create-admin.js       # Admin user creation
+│   ├── provider_templates.json # SIP templates
+│   └── .env                  # Configuration
+├── frontend/                  # React Frontend
+│   ├── src/
+│   │   ├── pages/            # UI pages
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── SipUsers.jsx
+│   │   │   ├── TrunkManagement.jsx
+│   │   │   ├── Endpoints.jsx
+│   │   │   ├── CallControl.jsx
+│   │   │   ├── Queues.jsx
+│   │   │   └── ...
+│   │   └── services/
+│   │       ├── api.js        # API client
+│   │       └── socket.js     # WebSocket
+│   └── vite.config.js
+├── config/                    # Asterisk Config Templates
+│   ├── pjsip.conf
+│   ├── extensions.conf
+│   ├── ari.conf
+│   ├── http.conf
+│   ├── rtp.conf
+│   └── modules.conf
+├── install-all.sh            # One-click installer
+├── configure-firewall.sh     # Firewall setup
+├── PORTS.md                  # Port documentation
+└── README.md                 # This file
+```
+
+## 🔌 Supported VoIP Providers
+
+### Trunk Templates
+- **Telnyx** - US/Global carrier with elastic SIP
+- **Twilio Elastic SIP** - Programmable voice platform
+- **SignalWire** - Cloud communications platform
+- **Vonage (Nexmo)** - Global VoIP provider
+- **Bandwidth** - Enterprise voice and messaging
+- **VoIP.ms** - Canadian retail VoIP
+- **Flowroute** - Wholesale VoIP carrier
+- **Plivo** - Cloud telephony platform
+- **Custom SIP** - Credential or IP authentication
+
+### User Templates
+- **Basic User** - Standard extension with voicemail
+- **Advanced User** - Full feature set with call limits
+- **Mobile User** - Optimized for mobile apps
+- **WebRTC User** - Browser-based softphone ready
+
+## 🗄️ Database Schema
+
+| Table | Description |
+|-------|-------------|
+| `admins` | Admin user accounts |
+| `admin_sessions` | JWT session tracking |
+| `api_keys` | API authentication keys |
+| `sip_users` | SIP user endpoints |
+| `sip_trunks` | SIP trunk configurations |
+| `call_logs` | Call history and CDR |
+| `credit_transactions` | Credit usage tracking |
+
+## 🔐 Configuration
+
+Edit `backend-node/.env`:
+
+```bash
+# Server
+PORT=3000
+NODE_ENV=production
+
+# Database
+DATABASE_URL=postgresql://user:pass@localhost/ari_api
+
+# JWT Secret
+JWT_SECRET=your-secret-key-here
+
+# Asterisk ARI
+ARI_HOST=localhost
+ARI_PORT=8088
+ARI_USER=ariuser
+ARI_PASSWORD=aripassword
+ARI_APP_NAME=asterisk-gui
+
+# Asterisk Paths
+ASTERISK_CONFIG_DIR=/etc/asterisk
+RECORDINGS_DIR=/var/spool/asterisk/recording
+ASTERISK_SOUNDS_DIR=/var/lib/asterisk/sounds
+
+# SIP Settings
+PJSIP_PORT=5060
+CALLER_ID=1000
+
+# TTS Engine (gtts or google)
+TTS_ENGINE=gtts
+GOOGLE_TTS_API_KEY=
+```
+
+## 📊 API Endpoints
+
+### Authentication
+- `POST /api/admin/login` - Admin login (returns JWT)
+
+### SIP Management  
+- `GET /api/sip-users` - List all SIP users
+- `POST /api/sip-users` - Create SIP user with template
+- `PUT /api/sip-users/:username` - Update SIP user
+- `DELETE /api/sip-users/:username` - Delete SIP user
+
+### Trunk Management
+- `GET /api/trunks` - List trunks with status
+- `POST /api/trunks` - Create trunk with template
+- `PUT /api/trunks/:name` - Update trunk
+- `DELETE /api/trunks/:name` - Delete trunk
+- `POST /api/trunks/assign` - Assign trunk for routing
+- `POST /api/trunks/unassign` - Unassign trunk
+
+### Asterisk Control
+- `GET /api/endpoints` - List all endpoints
+- `GET /api/channels` - Active channels
+- `GET /api/asterisk/queues` - Call queues
+- `POST /api/asterisk/queues` - Create queue
+- `POST /api/asterisk/reload` - Reload Asterisk module
+
+### Call Operations
+- `POST /api/call/originate` - Make outbound call
+- `POST /hangup` - Hangup call
+- `POST /voice` - Text-to-speech playback
+- `POST /gather` - Collect DTMF input
+
+## 🎯 Production Deployment
+
+### Cloud Provider Configuration
+
+#### AWS EC2
+1. Launch Ubuntu 22.04 instance (t3.medium or larger)
+2. Configure Security Group with ports from [PORTS.md](PORTS.md)
+3. Assign Elastic IP
+4. Update `/etc/asterisk/pjsip.conf` with public IP
+5. Run installer
+
+#### Google Cloud Platform
+1. Create Compute Engine instance (e2-medium or larger)
+2. Configure VPC firewall rules (see [PORTS.md](PORTS.md))
+3. Reserve static external IP
+4. Update Asterisk external_media_address
+5. Run installer
+
+#### Azure VM
+1. Deploy Ubuntu 22.04 VM (Standard_B2s or larger)
+2. Configure Network Security Group
+3. Assign static public IP
+4. Update Asterisk NAT settings
+5. Run installer
+
+### NAT Configuration
+
+For servers behind NAT, edit `/etc/asterisk/pjsip.conf`:
+
+```ini
+[global]
+external_media_address=YOUR_PUBLIC_IP
+external_signaling_address=YOUR_PUBLIC_IP
+local_net=10.0.0.0/8
+local_net=172.16.0.0/12
+local_net=192.168.0.0/16
+```
+
+Then reload: `sudo asterisk -rx "pjsip reload"`
+
+## 🐛 Troubleshooting
+
+### Endpoints Not Showing
+
+```bash
+# Check Asterisk endpoints
+sudo asterisk -rx "pjsip show endpoints"
+
+# Reload PJSIP
+sudo asterisk -rx "pjsip reload"
+
+# Check backend logs
+sudo journalctl -u asterisk-backend -n 50
+
+# Verify backend is running
+sudo systemctl status asterisk-backend
+```
+
+### Database Connection Failed
+
+```bash
+# Check PostgreSQL
+sudo systemctl status postgresql
+
+# Test database connection
+psql -U ari_user -d ari_api -h localhost
+
+# Check credentials in .env
+cat backend-node/.env
+```
+
+### Frontend Can't Connect
+
+```bash
+# Check backend is accessible
+curl http://localhost:3000/api/endpoints
+
+# Check CORS settings
+# Ensure backend allows your frontend origin
+
+# Check firewall
+sudo ufw status
+```
+
+### Service Won't Start
+
+```bash
+# Check detailed logs
+sudo journalctl -u asterisk-backend -xe
+sudo journalctl -u asterisk-frontend -xe
+
+# Verify Node.js version
+node --version  # Should be 18+
+
+# Reinstall dependencies
+cd backend-node && npm install
+cd ../frontend && npm install
+```
+
+## 🔧 Tech Stack
+
+| Component | Technology | Version |
+|-----------|-----------|---------|
+| Frontend | React | 18.x |
+| UI Library | Material-UI | 6.x |
+| Build Tool | Vite | 5.x |
+| Backend | Express.js | 4.x |
+| Runtime | Node.js | 18+ |
+| Database | PostgreSQL | 12+ |
+| PBX | Asterisk | 18+ |
+| API | ARI (Asterisk REST Interface) | Latest |
+| Auth | JWT | jsonwebtoken 9.x |
+| Hashing | bcryptjs | 2.x |
+
+## 📝 License
+
+MIT License - See LICENSE file for details
+
+## 🤝 Contributing
+
+Contributions welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing`)
+5. Open a Pull Request
+
+## 📧 Support
+
+- **Issues**: https://github.com/sportsbar-prog/mypbx/issues
+- **Documentation**: See `/docs` folder
+- **Wiki**: https://github.com/sportsbar-prog/mypbx/wiki
+
+## 🎉 Credits
+
+Built with ❤️ using:
+- [Asterisk](https://www.asterisk.org/) - Open source PBX
+- [Node.js](https://nodejs.org/) - JavaScript runtime
+- [React](https://react.dev/) - UI framework
+- [Material-UI](https://mui.com/) - Component library
+- [PostgreSQL](https://www.postgresql.org/) - Database
+- [ARI Client](https://github.com/asterisk/node-ari-client) - Asterisk interface
+
+---
+
+**Made with ☕ by the Asterisk Community**
+
+**Takes ~10-15 minutes and everything works perfectly!**
+
+**Access:** http://your-server-ip:5173 | **Login:** admin / admin123
+
+### Development Setup
+```bash
+# For local development (WSL or Ubuntu):
+bash setup.sh
+
+# Terminal 1: Backend
+cd backend-node && npm start
+
+# Terminal 2: Frontend
+cd frontend && npm run dev
+```
+
+## 📊 Architecture
+
+```
+React Frontend (5173)
+        ↓
+Express.js Backend (3000)
+        ↓
+    ├─ Asterisk ARI (8088)
+    └─ PostgreSQL (5432)
+```
+
+## 🔧 Tech Stack
+
+| Component | Technology | Version |
+|-----------|-----------|---------|
+| Frontend | React | 18.x |
+| Build | Vite | 5.4.21 |
+| Backend | Express.js | 4.18.2 |
+| Runtime | Node.js | 18+ |
+| Database | PostgreSQL | 16 |
+| VoIP | Asterisk | 20.17.0 |
+| VoIP API | ARI | 7.x |
+
+## 📚 Project Structure
+```
+asterisk-ari-gui/
+├── backend-node/              # Node.js Express API
+│   ├── server.js             # Main server (629 lines)
+│   ├── database-schema.sql   # PostgreSQL schema
+│   ├── .env                  # Configuration
+│   └── public/index.html     # Admin dashboard
+├── frontend/                  # React web app
+│   ├── src/                  # React components
+│   └── vite.config.js        # Build config
+├── scripts/
+│   ├── install.sh            # WSL setup
+│   └── test_all_endpoints.sh # API tests
+├── INSTALL_PRODUCTION.sh      # One-click production installer
+├── API_DOCUMENTATION.md       # 19 endpoints documented
+├── DEPLOYMENT_GUIDE.md        # Operations guide
+├── DEVELOPMENT_SETUP.md       # Dev environment
+└── FINAL_RELEASE_SUMMARY.md  # Release info
+```
+
+## 🌐 API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/health` | GET | System health |
+| `/api/admin/login` | POST | Authentication |
+| `/api/channels` | GET | List active channels |
+| `/api/channels/{id}/answer` | POST | Answer call |
+| `/api/channels/{id}/mute` | POST | Mute audio |
+| `/api/channels/{id}/hold` | POST | Hold call |
+| `/api/channels/{id}` | DELETE | Hangup call |
+| `/api/bridges` | GET | List conferences |
+| `/api/bridges/create` | POST | Create conference |
+| `+9 more endpoints` | - | Bridge, endpoint, call management |
+
+**Full documentation:** [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+
+## 🔐 Security
+
+- JWT token authentication
+- bcryptjs password hashing
+- Rate limiting (100 req/15min)
+- CORS protection
+- Helmet.js security headers
+- SQL injection prevention
+- Session tracking
+- Admin activity logging
+
+## 📖 Documentation
+
+| Document | Content |
+|----------|---------|
+| [API_DOCUMENTATION.md](API_DOCUMENTATION.md) | 19 REST endpoints with examples |
+| [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Production deployment & troubleshooting |
+| [DEVELOPMENT_SETUP.md](DEVELOPMENT_SETUP.md) | Development environment setup |
+| [FINAL_RELEASE_SUMMARY.md](FINAL_RELEASE_SUMMARY.md) | Complete release information |
+
+## 🚀 Deployment
+
+### Prerequisites
+- Ubuntu 22.04+ (or WSL2)
+- 2GB RAM
+- 10GB disk space
+- root/sudo access
+
+### Installation
+```bash
+cd /opt
+git clone https://github.com/your-repo/asterisk-ari-gui.git
+cd asterisk-ari-gui
+sudo bash INSTALL_PRODUCTION.sh
+```
+
+**Time:** 25-35 minutes  
+**Access:** http://your-server
+
+### Configuration
+
+Edit backend environment variables:
+```bash
+nano /opt/asterisk-ari-gui/backend-node/.env
+```
+
+Key variables:
+- `JWT_SECRET` - Change to random string
+- `DATABASE_URL` - Database connection
+- `ARI_HOST`, `ARI_PORT` - Asterisk location
+
+## 🔑 Default Credentials
+
+```
+Admin:
+  Username: admin
+  Password: admin123
+
+Asterisk ARI:
+  User: ariuser
+  Password: aripassword
+
+Database:
+  User: ari_user
+  Password: change_me
+```
+
+⚠️ **Change all passwords in production!**
+
+## 🛠️ Service Management
+
+```bash
+# Check status
+sudo systemctl status asterisk
+sudo systemctl status asterisk-gui-backend
+sudo systemctl status postgresql
+
+# View logs
+sudo journalctl -u asterisk-gui-backend -f
+sudo tail -f /var/log/asterisk/full
+```
+
+## 🧪 Testing
+
+### Test All Endpoints
+```bash
+bash scripts/test_all_endpoints.sh
+```
+
+### Manual API Test
+```bash
+# Login
+TOKEN=$(curl -X POST http://localhost:3000/api/admin/login \
+  -d '{"username":"admin","password":"admin123"}' \
+  | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+
+# Get channels
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:3000/api/channels
+```
+
+## 🐛 Troubleshooting
+
+### Backend Won't Start
+```bash
+# Check Node.js
+node --version
+
+# Check dependencies
+npm ls
+
+# Check logs
+journalctl -u asterisk-gui-backend -n 50
+```
+
+### Database Connection Error
+```bash
+# Test connectivity
+psql -h localhost -U ari_user -d ari_api
+
+# Check status
+sudo systemctl status postgresql
+```
+
+### Asterisk Not Connected
+```bash
+# Check module
+sudo asterisk -rx "module show like ari"
+
+# Reload
+sudo asterisk -rx "core reload"
+```
+
+See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md#troubleshooting) for detailed solutions.
+
+## 📈 Monitoring
+
+```bash
+# Health check
+curl http://localhost/api/health
+
+# Active calls
+sudo asterisk -rx "core show calls"
+
+# Database size
+sudo -u postgres psql -d ari_api -c \
+  "SELECT pg_size_pretty(pg_database_size('ari_api'));"
+```
+
+## 🎓 Learning Resources
+
+- [Asterisk Documentation](https://docs.asterisk.org/)
+- [ARI Reference](https://wiki.asterisk.org/wiki/display/AST/Asterisk+REST+Interface)
+- [PostgreSQL Docs](https://www.postgresql.org/docs/)
+- [Express.js Guide](https://expressjs.com/)
+
+## API Auth
+- Admin login: POST /api/admin/login
+- API keys: Bearer sk_xxx on /api/* (originate, etc.)
+
+## Default Creds
+- Admin: admin / admin123
+- ARI user: ariuser / aripassword (config/asterisk/ari.conf)
+
+## Notes
+- Python and C++ components were removed; ignore old instructions referencing backend/ or cpp/.
+- Frontend expects backend at http://localhost:3000/api; adjust VITE_API_URL if needed.
+
+## License
+MIT#   M y P B X 
+ 
+ #   m y p b x 
+ 
+ 

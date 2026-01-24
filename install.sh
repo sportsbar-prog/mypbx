@@ -419,7 +419,7 @@ fi
 if [ ! -f .env ]; then
     cat > .env << 'EOF'
 # Database Configuration
-DATABASE_URL=postgresql://ari_user:change_me@localhost:5432/ari_api
+DATABASE_URL=postgresql://ari_user:mypass@localhost:5432/ari_api
 
 # Asterisk ARI Configuration
 ARI_HOST=localhost
@@ -435,13 +435,13 @@ elif ! grep -q "DATABASE_URL" .env; then
     # Append to existing .env if DATABASE_URL is missing
     echo "" >> .env
     echo "# Database Configuration" >> .env
-    echo "DATABASE_URL=postgresql://ari_user:change_me@localhost:5432/ari_api" >> .env
+    echo "DATABASE_URL=postgresql://ari_user:mypass@localhost:5432/ari_api" >> .env
 fi
 
 # Wait for PostgreSQL to be fully ready
 print_step "Waiting for PostgreSQL to be ready..."
 for i in {1..30}; do
-    if PGPASSWORD=change_me psql -h localhost -U ari_user -d ari_api -c "SELECT 1" > /dev/null 2>&1; then
+    if PGPASSWORD=mypass psql -h localhost -U ari_user -d ari_api -c "SELECT 1" > /dev/null 2>&1; then
         print_success "PostgreSQL is ready"
         break
     fi
@@ -450,6 +450,22 @@ for i in {1..30}; do
     fi
     sleep 1
 done
+
+# Apply database schema
+print_step "Creating database schema..."
+if PGPASSWORD=mypass psql -h localhost -U ari_user -d ari_api -f database-schema.sql > /dev/null 2>&1; then
+    print_success "Database schema created"
+else
+    print_warning "Database schema may already exist, continuing..."
+fi
+
+# Run database migrations
+print_step "Running database migrations..."
+if node initialize-db.js > /dev/null 2>&1; then
+    print_success "Database migrations completed"
+else
+    print_warning "Database migrations failed or already applied, continuing..."
+fi
 
 # Start backend
 nohup node server.js > backend.log 2>&1 &
